@@ -171,7 +171,7 @@ def particle_marginal_empirical(b):
     return unique, log_probs
 
 
-def particle_marginal_mixture(b, eltwise_log_prob):
+def particle_marginal_mixture(b, eltwise_log_prob, data, interv_targets):
     """
     Converts batch of binary (adjacency) matrices into a standardized
     form of a particle distribution, weighted by specific log probabilities.
@@ -193,7 +193,7 @@ def particle_marginal_mixture(b, eltwise_log_prob):
     unique, counts = onp.unique(ids, axis=0, return_counts=True)
 
     # mixture using relative log probs
-    log_probs = eltwise_log_prob(id2bit(unique, n_vars))
+    log_probs = eltwise_log_prob(id2bit(unique, n_vars), data, interv_targets)
     log_probs -= logsumexp(log_probs)
 
     return unique, log_probs

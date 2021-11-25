@@ -225,7 +225,7 @@ def particle_joint_empirical(b, theta):
     return ids, theta, log_probs
 
 
-def particle_joint_mixture(b, theta, eltwise_log_prob):
+def particle_joint_mixture(b, theta, eltwise_log_prob, data, interv_targets):
     """
     Converts batch of binary (adjacency) matrices and associated
     parameters into into a standardized form of a particle distribution, 
@@ -250,7 +250,7 @@ def particle_joint_mixture(b, theta, eltwise_log_prob):
 
     # mixture using relative log probs
     # assumes that every particle is unique (always true because of theta)
-    log_probs = eltwise_log_prob(id2bit(ids, n_vars), theta)
+    log_probs = eltwise_log_prob(id2bit(ids, n_vars), theta, data, interv_targets)
     log_probs -= logsumexp(log_probs)
 
     return ids, theta, log_probs

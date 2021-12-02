@@ -6,9 +6,9 @@ from jax import jit, vmap, random, grad
 from jax.experimental import optimizers
 from jax.tree_util import tree_map, tree_multimap
 
-from dibs.inference.dibs import DiBS
+from ..inference.dibs import DiBS
 
-from dibs.utils.func import expand_by
+from ..utils.func import expand_by
 
 
 class JointDiBS(DiBS):

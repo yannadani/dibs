@@ -13,7 +13,7 @@ from jax import jit, vmap
 from jax.ops import index, index_update
 from jax import random
 
-from dibs.exceptions import InvalidCPDAGError
+from ..exceptions import InvalidCPDAGError
 
 
 @functools.partial(jit, static_argnums=(1,))

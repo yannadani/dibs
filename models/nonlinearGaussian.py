@@ -11,8 +11,8 @@ from jax.experimental.stax import Dense, Sigmoid, LeakyRelu, Relu, Tanh
 
 from jax.nn.initializers import normal
 
-from dibs.utils.graph import graph_to_mat
-from dibs.utils.tree import tree_shapes
+from ..utils.graph import graph_to_mat
+from ..utils.tree import tree_shapes
 
 
 def DenseNoBias(out_dim, W_init=normal()):

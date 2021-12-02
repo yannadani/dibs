@@ -5,7 +5,7 @@ import jax.numpy as jnp
 from jax import jit, vmap, random, grad
 from jax.experimental import optimizers
 
-from dibs.inference.dibs import DiBS
+from ..inference.dibs import DiBS
 
 
 class MarginalDiBS(DiBS):

@@ -2,7 +2,7 @@
 import jax.numpy as jnp
 import jax.lax as lax
 
-from dibs.utils.func import squared_norm_pytree
+from ..utils.func import squared_norm_pytree
 
 
 class JointMultiplicativeFrobeniusSEKernel:

@@ -6,8 +6,8 @@ from jax.nn import sigmoid, log_sigmoid
 import jax.lax as lax
 from jax.tree_util import tree_map, tree_multimap
 
-from dibs.utils.graph import acyclic_constr_nograd
-from dibs.utils.func import expand_by
+from ..utils.graph import acyclic_constr_nograd
+from ..utils.func import expand_by
 
 
 class DiBS:

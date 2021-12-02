@@ -10,7 +10,7 @@ from jax import jit, vmap
 import jax.lax as lax
 from jax.scipy.special import gammaln
 
-from dibs.utils.func import leftsel
+from ..utils.func import leftsel
 
 class BGe(BasicModel):
     """

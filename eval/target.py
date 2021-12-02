@@ -5,12 +5,12 @@ from collections import namedtuple
 import jax.numpy as jnp
 from jax import random
 
-from dibs.graph.graph import ErdosReniDAGDistribution, ScaleFreeDAGDistribution, UniformDAGDistributionRejection
-from dibs.utils.graph import graph_to_mat, adjmat_to_str
+from ..graph.graph import ErdosReniDAGDistribution, ScaleFreeDAGDistribution, UniformDAGDistributionRejection
+from ..utils.graph import graph_to_mat, adjmat_to_str
 
-from dibs.models.linearGaussian import LinearGaussian, LinearGaussianJAX
-from dibs.models.linearGaussianEquivalent import BGe, BGeJAX
-from dibs.models.nonlinearGaussian import DenseNonlinearGaussianJAX
+from ..models.linearGaussian import LinearGaussian, LinearGaussianJAX
+from ..models.linearGaussianEquivalent import BGe, BGeJAX
+from ..models.nonlinearGaussian import DenseNonlinearGaussianJAX
 
 STORE_ROOT = ['store'] 
 

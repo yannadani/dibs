@@ -161,14 +161,14 @@ def particle_marginal_empirical(b):
 
     @jax.jit not possible because of jnp.unique
     """
-    N, _, _ = b.shape
+    N, n_vars, _ = b.shape
     ids = bit2id(b)
     unique, counts = onp.unique(ids, axis=0, return_counts=True)
 
     # empirical using counts
     log_probs = jnp.log(counts) - jnp.log(N)
 
-    return unique, log_probs
+    return id2bit(unique, n_vars), log_probs
 
 
 def particle_marginal_mixture(b, eltwise_log_prob, data, interv_targets):
@@ -196,7 +196,7 @@ def particle_marginal_mixture(b, eltwise_log_prob, data, interv_targets):
     log_probs = eltwise_log_prob(id2bit(unique, n_vars), data, interv_targets)
     log_probs -= logsumexp(log_probs)
 
-    return unique, log_probs
+    return id2bit(unique, n_vars), log_probs
 
 
 def particle_joint_empirical(b, theta):
@@ -216,13 +216,13 @@ def particle_joint_empirical(b, theta):
 
     @jax.jit not possible because of jnp.unique
     """
-    N, _, _ = b.shape
+    N, n_vars, _ = b.shape
     ids = bit2id(b)
 
     # empirical
     log_probs = - jnp.log(N) * jnp.ones(N)
 
-    return ids, theta, log_probs
+    return id2bit(ids, n_vars), theta, log_probs
 
 
 def particle_joint_mixture(b, theta, eltwise_log_prob, data, interv_targets):
@@ -253,7 +253,7 @@ def particle_joint_mixture(b, theta, eltwise_log_prob, data, interv_targets):
     log_probs = eltwise_log_prob(id2bit(ids, n_vars), theta, data, interv_targets)
     log_probs -= logsumexp(log_probs)
 
-    return ids, theta, log_probs
+    return id2bit(ids,n_vars), theta, log_probs
 
 
 def dist_is_none(dist):

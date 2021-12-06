@@ -252,7 +252,7 @@ class JointDiBS(DiBS):
 
     # this is the crucial @jit
     @functools.partial(jit, static_argnums=(0,))
-    def svgd_step(self, opt_state_z, opt_state_theta, key, t, sf_baseline):
+    def svgd_step(self, opt_state_z, opt_state_theta, data, key, interv_targets, t, sf_baseline):
         """
         Performs a single SVGD step in the DiBS framework, updating Z and theta jointly.
         
@@ -277,11 +277,11 @@ class JointDiBS(DiBS):
 
         # d/dtheta log p(theta, D | z)
         key, subk = random.split(key)
-        dtheta_log_prob = self.eltwise_grad_theta_likelihood(z, theta, t, subk)
+        dtheta_log_prob = self.eltwise_grad_theta_likelihood(z, theta, t, data, interv_targets, subk)
 
         # d/dz log p(theta, D | z)
         key, *batch_subk = random.split(key, n_particles + 1)
-        dz_log_likelihood, sf_baseline = self.eltwise_grad_z_likelihood(z, theta, sf_baseline, t, jnp.array(batch_subk))
+        dz_log_likelihood, sf_baseline = self.eltwise_grad_z_likelihood(z, theta, sf_baseline, t, data, interv_targets, jnp.array(batch_subk))
 
         # d/dz log p(z) (acyclicity)
         key, *batch_subk = random.split(key, n_particles + 1)
@@ -306,7 +306,7 @@ class JointDiBS(DiBS):
     
     
 
-    def sample_particles(self, *, n_steps, init_particles_z, init_particles_theta, key, callback=None, callback_every=0):
+    def sample_particles(self, *, n_steps, init_particles_z, init_particles_theta, data, key, interv_targets, callback=None, callback_every=0):
         """
         Deterministically transforms particles to minimize KL to target using SVGD
 
@@ -362,7 +362,7 @@ class JointDiBS(DiBS):
 
             # perform one SVGD step (compiled with @jit)
             opt_state_z, opt_state_theta, key, sf_baseline  = self.svgd_step(
-                opt_state_z, opt_state_theta, key, t, sf_baseline)
+                opt_state_z, opt_state_theta, data, key,interv_targets, t, sf_baseline)
 
             # callback
             if callback and callback_every and (((t+1) % callback_every == 0) or (t == (n_steps - 1))):

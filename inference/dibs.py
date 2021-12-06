@@ -454,7 +454,7 @@ class DiBS:
         # use the same minibatch of data as for other log prob evaluation (if using minibatching)
         
         # [d, k, 2], [d, d], [n_grad_mc_samples, d, d], [1,], [1,] -> [n_grad_mc_samples, d, k, 2]
-        grad_z = vmap(grad(self.log_joint_prob_soft, 0), (None, None, 0, None, None), 0)(single_z, single_theta, eps, t, subk_)
+        grad_z = vmap(grad(self.log_joint_prob_soft, 0), (None, None, 0, None, None, None, None), 0)(single_z, single_theta, eps, t, data, interv_targets, subk_)
 
         # stable computation of exp/log/divide
         # [d, k, 2], [d, k, 2]
@@ -474,7 +474,7 @@ class DiBS:
     # (i.e. w.r.t the conditional distribution parameters)
     #
 
-    def eltwise_grad_theta_likelihood(self, zs, thetas, t, subk):
+    def eltwise_grad_theta_likelihood(self, zs, thetas, t, data, interv_targets, subk):
         """
         Computes batch of estimators for the score
             
@@ -493,7 +493,7 @@ class DiBS:
             batch of gradients in form of PyTree with `n_particles` as leading dim     
 
         """
-        return vmap(self.grad_theta_likelihood, (0, 0, None, None), 0)(zs, thetas, t, subk)
+        return vmap(self.grad_theta_likelihood, (0, 0, None, None, None, None), 0)(zs, thetas, t, data, interv_targets, subk)
 
 
     def grad_theta_likelihood(self, single_z, single_theta, t, data, interv_targets, subk):
@@ -535,7 +535,7 @@ class DiBS:
         # d/dtheta log p(theta, D | G) for a batch of G samples
         # use the same minibatch of data as for other log prob evaluation (if using minibatching)
         grad_theta_log_joint_prob = grad(self.target_log_joint_prob, 1)
-        grad_theta = vmap(grad_theta_log_joint_prob, (0, None, None, None), 0)(g_samples, single_theta, interv_targets, subk_)
+        grad_theta = vmap(grad_theta_log_joint_prob, (0, None, None, None, None), 0)(g_samples, single_theta, data, interv_targets, subk_)
 
         # stable computation of exp/log/divide and PyTree compatible
         # sums over MC graph samples dimension to get MC gradient estimate of theta

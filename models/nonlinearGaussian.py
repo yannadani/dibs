@@ -86,7 +86,7 @@ class DenseNonlinearGaussianJAX:
     def __init__(self, *, obs_noise, sig_param, hidden_layers, g_dist=None, verbose=False, activation='relu', bias=True):
         super(DenseNonlinearGaussianJAX, self).__init__()
 
-        self.obs_noise = obs_noise
+        self.obs_noise = jnp.array(obs_noise)
         self.sig_param = sig_param
         self.hidden_layers = hidden_layers
         self.g_dist = g_dist
@@ -155,7 +155,7 @@ class DenseNonlinearGaussianJAX:
         theta = tree_map(lambda arr: arr.astype(jnp.float64), theta)
         return theta
 
-    def sample_parameters(self, *, key, g):
+    def sample_parameters(self, *, key, n_vars):
         """Samples parameters for neural network. Here, g is ignored.
         Args:
             g (igraph.Graph): graph
@@ -164,7 +164,6 @@ class DenseNonlinearGaussianJAX:
         Returns:
             theta : list of (W, b) tuples, dependent on `hidden_layers`
         """
-        n_vars = len(g.vs)
 
         subkeys = random.split(key, n_vars)
         _, theta = self.eltwise_nn_init_random_params(subkeys, (n_vars, ))
@@ -172,7 +171,7 @@ class DenseNonlinearGaussianJAX:
         return theta
 
 
-    def sample_obs(self, *, key, n_samples, g, theta, toporder=None, interv={}):
+    def sample_obs(self, *, key, n_samples, g, theta, toporder=None, node = None, value_sampler = None):
         """
         Samples `n_samples` observations by doing single forward passes in topological order
         Args:
@@ -192,9 +191,11 @@ class DenseNonlinearGaussianJAX:
 
         n_vars = len(g.vs)
         x = jnp.zeros((n_samples, n_vars))
-
-        key, subk = random.split(key)
-        z = jnp.sqrt(self.obs_noise) * random.normal(subk, shape=(n_samples, n_vars))
+        z = jnp.zeros((n_samples, n_vars))
+        
+        for i in range(n_vars):
+            key, subk = random.split(key)
+            z = index_update(z, index[:, i], self.obs_noise[i] * random.normal(subk, shape=(n_samples,)))
 
         g_mat = graph_to_mat(g)
 
@@ -203,8 +204,8 @@ class DenseNonlinearGaussianJAX:
         for j in toporder:
 
             # intervention
-            if j in interv.keys():
-                x = index_update(x, index[:, j], interv[j])
+            if j == node:
+                x = index_update(x, index[:, j], value_sampler.sample(n_samples))
                 continue
 
             # regular ancestral sampling
@@ -281,7 +282,7 @@ class DenseNonlinearGaussianJAX:
                 interv_targets[None, ...],
                 0.0,
                 # [n_observations, n_vars]
-                jax_normal.logpdf(x=data, loc=all_means, scale=jnp.sqrt(self.obs_noise))
+                jax_normal.logpdf(x=data, loc=all_means, scale=self.obs_noise)
             )
         )
        

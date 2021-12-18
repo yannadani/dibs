@@ -285,4 +285,32 @@ class DenseNonlinearGaussianJAX:
                 jax_normal.logpdf(x=data, loc=all_means, scale=self.obs_noise)
             )
         )
-       
+    
+    def log_likelihood_single(self, *, data, theta, w, interv_targets):
+        """log p(x | theta, G)
+        Assumes N(mean_obs, obs_noise^2) distribution for any given observation
+        
+        Args:
+            data: observations [N, d]
+            theta: parameter PyTree
+            w: adjacency matrix [n_vars, n_vars]
+            interv_targets: boolean indicator of intervention locations [n_vars, ]
+        
+        Returns:
+            logprob [1, ]
+        """
+
+        # [d2, N, d] = [1, N, d] * [d2, 1, d] mask non-parent entries of each j
+        all_x_msk = data[None] * w.T[:, None]
+
+        # [N, d2] NN forward passes for parameters of each param j 
+        all_means = self.double_eltwise_nn_forward(theta, all_x_msk)
+
+        # sum scores for all nodes and data
+        return jnp.sum(jnp.where(
+                # [1, n_vars]
+                interv_targets[None, ...],
+                0.0,
+                # [n_observations, n_vars]
+                jax_normal.logpdf(x=data, loc=all_means, scale=self.obs_noise)
+            ), axis = -1)

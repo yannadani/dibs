@@ -196,7 +196,7 @@ class DenseNonlinearGaussianJAX:
         for j in toporder:
             parents = g_mat[:, j]
             has_parents = parents.sum() > 0
-            x = x.at[index[:, j]].set(
+            x = x.at[:, j].set(
                 jnp.where(
                     has_parents,
                     self.eltwise_nn_forward(theta, x * parents)[:, j] + z[:, j],  # if has_parents

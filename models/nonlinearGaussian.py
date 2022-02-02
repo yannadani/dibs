@@ -1,7 +1,6 @@
 import jax.numpy as jnp
 from jax import vmap
 from jax import random
-from jax.ops import index, index_update
 from jax.scipy.stats import norm as jax_normal
 from jax.tree_util import tree_map, tree_reduce
 
@@ -195,7 +194,7 @@ class DenseNonlinearGaussianJAX:
         
         for i in range(n_vars):
             key, subk = random.split(key)
-            z = index_update(z, index[:, i], self.obs_noise[i] * random.normal(subk, shape=(n_samples,)))
+            z = z.at[:, i].set( self.obs_noise[i] * random.normal(subk, shape=(n_samples,)))
 
         g_mat = graph_to_mat(g)
 
@@ -205,7 +204,7 @@ class DenseNonlinearGaussianJAX:
 
             # intervention
             if j == node:
-                x = index_update(x, index[:, j], value_sampler.sample(n_samples))
+                x = x.at[:, j].set(value_sampler.sample(n_samples))
                 continue
 
             # regular ancestral sampling
@@ -221,9 +220,9 @@ class DenseNonlinearGaussianJAX:
                 means = self.eltwise_nn_forward(theta, x_msk)
 
                 # [N,] update j only
-                x = index_update(x, index[:, j], means[:, j] + z[:, j])
+                x = x.at[:, j].set(means[:, j] + z[:, j])
             else:
-                x = index_update(x, index[:, j], z[:, j])
+                x = x.at[:, j].set(z[:, j])
 
         return x
 

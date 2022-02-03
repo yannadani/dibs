@@ -1,5 +1,5 @@
 import jax.numpy as jnp
-from jax import vmap
+from jax import vmap, jit
 from jax import random
 from jax.scipy.stats import norm as jax_normal
 from jax.tree_util import tree_map, tree_reduce
@@ -12,7 +12,7 @@ from jax.nn.initializers import normal
 
 from ..utils.graph import graph_to_mat
 from ..utils.tree import tree_shapes
-
+from functools import partial
 
 def DenseNoBias(out_dim, W_init=normal()):
     """Layer constructor function for a dense (fully-connected) layer _without_ bias"""
@@ -203,7 +203,7 @@ class DenseNonlinearGaussianJAX:
         return x
 
 
-    def sample_obs(self, *, key, n_samples, g_mat, theta, toporder=None, node = None, value_sampler = None):
+    def sample_obs(self, *, key, n_samples, g, theta, node = None, value_sampler = None):
 
         """
         Samples `n_samples` observations by doing single forward passes in topological order
@@ -217,22 +217,26 @@ class DenseNonlinearGaussianJAX:
         Returns:
             x : [n_samples, d] 
         """
+        g_mat = graph_to_mat(g)
+        toporder = g.topological_sorting()
         n_vars = g_mat.shape[0]
 
         x = jnp.zeros((n_samples, n_vars))
-        values = value_sampler.sample(n_samples)
-        x = x.at[:, node].set(values)
+        if node is not None:
+            values = value_sampler.sample(n_samples)
+            x = x.at[:, node].set(values)
+            toporder = [i for i in toporder if i != node]
         z = self.obs_noise * random.normal(key, shape=(n_samples, n_vars)) # additive gaussian noise on the z
-        mutilated_toporder = [i for i in toporder if i != node]
+        
         return self.fast_sample_obs(
             x=x,
             z=z,
             g_mat=g_mat,
             theta=theta,
-            toporder=mutilated_toporder)
+            toporder=toporder)
 
 
-    def old_sample_obs(self, *, key, n_samples, g_mat, theta, toporder, node = None, value_sampler = None):
+    def old_sample_obs(self, *, key, n_samples, g, theta, node = None, value_sampler = None):
         """
         Samples `n_samples` observations by doing single forward passes in topological order
         Args:
@@ -245,9 +249,9 @@ class DenseNonlinearGaussianJAX:
         Returns:
             x : [n_samples, d]
         """
-
+        g_mat = graph_to_mat(g)
         n_vars = g_mat.shape[0]
-
+        toporder = g.topological_sorting()
         x = jnp.zeros((n_samples, n_vars))
         values = value_sampler.sample(n_samples)
         z = self.obs_noise * random.normal(key, shape=(n_samples, n_vars)) # additive gaussian noise on the z

@@ -170,7 +170,41 @@ class DenseNonlinearGaussianJAX:
         return theta
 
 
-    def sample_obs(self, *, key, n_samples, g, theta, toporder=None, node = None, value_sampler = None):
+
+    @partial(jit, static_argnums=(0,))
+    def fast_sample_obs(self, x, z, g_mat, theta, toporder):
+        """
+        Samples `n_samples` observations by doing single forward passes in topological order
+        Args:
+            key: rng
+            n_samples (int): number of samples
+            g_mat: adjacency matrix
+            toporder: topopoligcal order of the graph nodes
+            theta : PyTree of parameters
+            interv: {intervened node : clamp value}
+
+        Returns:
+            x : [n_samples, d]
+        """
+
+        # ancestral sampling
+        # does d full forward passes for simplicity,
+        # which avoids indexing into python list of parameters
+        for j in toporder:
+            parents = g_mat[:, j]
+            has_parents = parents.sum() > 0
+            x = x.at[:, j].set(
+                jnp.where(
+                    has_parents,
+                    self.eltwise_nn_forward(theta, x * parents)[:, j] + z[:, j],  # if has_parents
+                    z[:, j]) # else
+                )
+
+        return x
+
+
+    def sample_obs(self, *, key, n_samples, g_mat, theta, toporder=None, node = None, value_sampler = None):
+
         """
         Samples `n_samples` observations by doing single forward passes in topological order
         Args:
@@ -183,20 +217,40 @@ class DenseNonlinearGaussianJAX:
         Returns:
             x : [n_samples, d] 
         """
+        n_vars = g_mat.shape[0]
 
-        # find topological order for ancestral sampling
-        if toporder is None:
-            toporder = g.topological_sorting()
-
-        n_vars = len(g.vs)
         x = jnp.zeros((n_samples, n_vars))
-        z = jnp.zeros((n_samples, n_vars))
-        
-        for i in range(n_vars):
-            key, subk = random.split(key)
-            z = z.at[:, i].set( self.obs_noise[i] * random.normal(subk, shape=(n_samples,)))
+        values = value_sampler.sample(n_samples)
+        x = x.at[:, node].set(values)
+        z = self.obs_noise * random.normal(key, shape=(n_samples, n_vars)) # additive gaussian noise on the z
+        mutilated_toporder = [i for i in toporder if i != node]
+        return self.fast_sample_obs(
+            x=x,
+            z=z,
+            g_mat=g_mat,
+            theta=theta,
+            toporder=mutilated_toporder)
 
-        g_mat = graph_to_mat(g)
+
+    def old_sample_obs(self, *, key, n_samples, g_mat, theta, toporder, node = None, value_sampler = None):
+        """
+        Samples `n_samples` observations by doing single forward passes in topological order
+        Args:
+            key: rng
+            n_samples (int): number of samples
+            g (igraph.Graph): graph
+            theta : PyTree of parameters
+            interv: {intervened node : clamp value}
+
+        Returns:
+            x : [n_samples, d]
+        """
+
+        n_vars = g_mat.shape[0]
+
+        x = jnp.zeros((n_samples, n_vars))
+        values = value_sampler.sample(n_samples)
+        z = self.obs_noise * random.normal(key, shape=(n_samples, n_vars)) # additive gaussian noise on the z
 
         # ancestral sampling
         # for simplicity, does d full forward passes for simplicity, which avoids indexing into python list of parameters
@@ -204,7 +258,7 @@ class DenseNonlinearGaussianJAX:
 
             # intervention
             if j == node:
-                x = x.at[:, j].set(value_sampler.sample(n_samples))
+                x = x.at[:, node].set(values)
                 continue
 
             # regular ancestral sampling

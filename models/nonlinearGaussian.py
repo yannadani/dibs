@@ -1,14 +1,18 @@
 import jax.numpy as jnp
+
+import jax
 from jax import vmap, jit
 from jax import random
 from jax.scipy.stats import norm as jax_normal
 from jax.tree_util import tree_map, tree_reduce
 
-
+import jax.lax as lax
 import jax.experimental.stax as stax
 from jax.experimental.stax import Dense, Sigmoid, LeakyRelu, Relu, Tanh
 
 from jax.nn.initializers import normal
+
+# from jax.ops import index, index_update
 
 from ..utils.graph import graph_to_mat
 from ..utils.tree import tree_shapes
@@ -38,7 +42,7 @@ def makeDenseNet(*, hidden_layers, sig_weight, sig_bias, bias=True, activation='
         hidden_layers (list): list of ints specifying the dimensions of the hidden sizes
         sig_weight: std dev of weight initialization
         sig_bias: std dev of weight initialization
-    
+
     Returns:
         stax.serial neural net object
     """
@@ -74,12 +78,12 @@ def makeDenseNet(*, hidden_layers, sig_weight, sig_bias, bias=True, activation='
         modules += [DenseNoBias(1, W_init=normal(stddev=sig_weight))]
 
     return stax.serial(*modules)
-    
+
 
 class DenseNonlinearGaussianJAX:
-    """	
+    """
     Non-linear Gaussian BN with interactions modeled by a fully-connected neural net
-    See: https://arxiv.org/abs/1909.13189    
+    See: https://arxiv.org/abs/1909.13189
     """
 
     def __init__(self, *, obs_noise, sig_param, hidden_layers, g_dist=None, verbose=False, activation='relu', bias=True):
@@ -95,20 +99,20 @@ class DenseNonlinearGaussianJAX:
 
         # init single neural net function for one variable with jax stax
         self.nn_init_random_params, nn_forward = makeDenseNet(
-            hidden_layers=self.hidden_layers, 
+            hidden_layers=self.hidden_layers,
             sig_weight=self.sig_param,
             sig_bias=self.sig_param,
             activation=self.activation,
             bias=self.bias)
-        
+
         # [?], [N, d] -> [N,]
         self.nn_forward = lambda theta, x: nn_forward(theta, x).squeeze(-1)
-        
+
         # vectorize init and forward functions
         self.eltwise_nn_init_random_params = vmap(self.nn_init_random_params, (0, None), 0)
         self.double_eltwise_nn_init_random_params = vmap(self.eltwise_nn_init_random_params, (0, None), 0)
         self.triple_eltwise_nn_init_random_params = vmap(self.double_eltwise_nn_init_random_params, (0, None), 0)
-        
+
         # [d2, ?], [N, d] -> [N, d2]
         self.eltwise_nn_forward = vmap(self.nn_forward, (0, None), 1)
 
@@ -124,7 +128,7 @@ class DenseNonlinearGaussianJAX:
         Returns:
             PyTree of parameter shape
         """
-        
+
         dummy_subkeys = jnp.zeros((n_vars, 2), dtype=jnp.uint32)
         _, theta = self.eltwise_nn_init_random_params(dummy_subkeys, (n_vars, )) # second arg is `input_shape` of NN forward pass
 
@@ -132,7 +136,7 @@ class DenseNonlinearGaussianJAX:
         return theta_shape
 
     def init_parameters(self, *, key, n_vars, n_particles, batch_size=0):
-        """Samples batch of random parameters given dimensions of graph, from p(theta | G) 
+        """Samples batch of random parameters given dimensions of graph, from p(theta | G)
         Args:
             key: rng
             n_vars: number of variables in BN
@@ -149,7 +153,7 @@ class DenseNonlinearGaussianJAX:
         else:
             subkeys = random.split(key, batch_size * n_particles * n_vars).reshape(batch_size, n_particles, n_vars, -1)
             _, theta = self.triple_eltwise_nn_init_random_params(subkeys, (n_vars, ))
-            
+
         # to float64
         theta = tree_map(lambda arr: arr.astype(jnp.float64), theta)
         return theta
@@ -171,7 +175,7 @@ class DenseNonlinearGaussianJAX:
 
 
 
-    @partial(jit, static_argnums=(0,))
+    #@partial(jit, static_argnums=(0,))
     def fast_sample_obs(self, x, z, g_mat, theta, toporder):
         """
         Samples `n_samples` observations by doing single forward passes in topological order
@@ -190,53 +194,101 @@ class DenseNonlinearGaussianJAX:
         # ancestral sampling
         # does d full forward passes for simplicity,
         # which avoids indexing into python list of parameters
-        for j in toporder:
-            parents = g_mat[:, j]
-            has_parents = parents.sum() > 0
-            x = x.at[:, j].set(
-                jnp.where(
-                    has_parents,
-                    self.eltwise_nn_forward(theta, x * parents)[:, j] + z[:, j],  # if has_parents
-                    z[:, j]) # else
-                )
+
+        # permute
+        #t_x = jax.vmap(lambda arr, t: arr[t])(x, toporder)
+        #t_z = jax.vmap(lambda arr, t: arr[t])(z, toporder)
+        #t_xgmat = jax.vmap(lambda arr, t, g: arr[t]*g[:, t], (0, 0, None))(z, toporder, g_mat)
+
+        # x = lax.fori_loop(
+        #         0,
+        #         toporder.shape[1],
+        #         lambda j, arr: arr.at[:, j].set(
+        #             jnp.where(
+        #                 g_mat[:, j].sum() > 0,
+        #                 self.eltwise_nn_forward(theta, t_xgmat[..., j])[:, j] + z[:, j],  # if has_parents
+        #                 z[:, j]) # else
+        #             )
+        #         ,
+        #         x
+        #     )
+        # import pdb; pdb.set_trace()
+        # x = jax.vmap(
+        #     lambda x, z, t_xgmat, g, theta: lax.fori_loop(
+        #         0,
+        #         toporder.shape[1],
+        #         lambda j, arr: arr.at[:, t].set(
+        #             jnp.where(
+        #                 g[:, j].sum() > 0,
+        #                 self.eltwise_nn_forward(theta, t_xgmat[..., j])[:, j] + z[:, j],  # if has_parents
+        #                 z[:, j]) # else
+        #             )
+        #         ,
+        #         x
+        #     ),
+        #     (0, 0, 0, None, None)
+        # )(t_x, t_z, t_xgmat, g_mat, theta)
+
+
+        batch_index = jax.vmap(lambda arr, t: arr[t], (0, 0))
+        batch_set = jax.vmap(lambda arr, t, v: arr.at[t].set(v[t]), (0, 0, 0))
+
+
+
+        x = lax.fori_loop(
+            0,
+            toporder.shape[1],
+            lambda j, arr:
+                batch_set(
+                    x,
+                    toporder[:, j],
+                    jnp.where(
+                        (jnp.take(g_mat, toporder[:, j], axis=1).T.sum(1) > 0)[:, None], # has parents
+                        self.eltwise_nn_forward(theta, x*jnp.take(g_mat, toporder[:, j], axis=1).T) + z,
+                        z
+                    )
+                ),
+            x
+        )
+
+        # for j in range(toporder.shape[1]):
+        #     _t = toporder[:, j]
+        #     #parents = g_mat[:, j]
+        #     #has_parents = parents.sum() > 0
+
+        #     # batch version of g_mat[:, j] (where j is batched)
+        #     parents = jnp.take(g_mat, _t, axis=1).T
+        #     #xgx = x*parents
+
+        #     x = batch_set(
+        #         x,
+        #         _t,
+        #         jnp.where(
+        #             (jnp.take(g_mat, _t, axis=1).T.sum(1) > 0)[:, None],
+        #             self.eltwise_nn_forward(theta, x*jnp.take(g_mat, _t, axis=1).T) + z,
+        #             z
+        #         )
+        #     )
+            # tmp = jax.vmap(
+            #     lambda x, z, t, gx, theta: gx
+            #     # jax.vmap(
+            #     #         lambda theta, input: self.eltwise_nn_forward(theta, input),
+            #     #         (None, 0)
+            #     #     )(theta, x * g[:, t]),
+            #     # x.at[j].set(jnp.where(
+            #     #                                 g[:, j].sum() > 0,
+            #     #                                 self.eltwise_nn_forward(theta, x * g[:, j])[j] + z[j],  # if has_parents
+            #     #                                 z[j]) # else
+            #     #                             ),
+            #     (0, 0, 0, 0, None)
+            # )(x, z, _t, parents, theta)
+            # import pdb; pdb.set_trace()
 
         return x
 
 
-    def sample_obs(self, *, key, n_samples, g, theta, node = None, value_sampler = None):
+    def new_sample_obs(self, *, key, n_samples, g_mat, theta, toporder, nodes = None, values = None):
 
-        """
-        Samples `n_samples` observations by doing single forward passes in topological order
-        Args:
-            key: rng
-            n_samples (int): number of samples
-            g (igraph.Graph): graph
-            theta : PyTree of parameters
-            interv: {intervened node : clamp value}
-
-        Returns:
-            x : [n_samples, d] 
-        """
-        g_mat = graph_to_mat(g)
-        toporder = g.topological_sorting()
-        n_vars = g_mat.shape[0]
-
-        x = jnp.zeros((n_samples, n_vars))
-        if node is not None:
-            values = value_sampler.sample(n_samples)
-            x = x.at[:, node].set(values)
-            toporder = [i for i in toporder if i != node]
-        z = self.obs_noise * random.normal(key, shape=(n_samples, n_vars)) # additive gaussian noise on the z
-        
-        return self.fast_sample_obs(
-            x=x,
-            z=z,
-            g_mat=g_mat,
-            theta=theta,
-            toporder=toporder)
-
-
-    def old_sample_obs(self, *, key, n_samples, g, theta, node = None, value_sampler = None):
         """
         Samples `n_samples` observations by doing single forward passes in topological order
         Args:
@@ -249,12 +301,65 @@ class DenseNonlinearGaussianJAX:
         Returns:
             x : [n_samples, d]
         """
-        g_mat = graph_to_mat(g)
         n_vars = g_mat.shape[0]
-        toporder = g.topological_sorting()
+        B = nodes.shape[0]
+        x = jnp.zeros((B, n_vars))
+        if nodes is not None:
+            if hasattr(values, 'sample'):
+                values = values.sample(n_samples)
+            # x = x.at[:, node].set(values)
+            # import pdb; pdb.set_trace()
+            #x = x.at[node].set(values)
+            x = jax.vmap(lambda arr, idx, vals: arr.at[idx].set(vals))(x, nodes, values)
+
+            #toporder = toporder[toporder != node]
+            # toporder = jnp.where(toporder != node, toporder, (node+1)%n_vars)
+
+            # TODO: improve this ugly modulo n_vars.
+            toporder = jnp.where(toporder != nodes[:, None], toporder, (nodes[:, None]+1)%n_vars)
+
+
+        # z = jnp.zeros((n_samples, n_vars))
+        # for i in range(n_vars):
+        #     key, subk = random.split(key)
+        #     z = index_update(z, index[:, i], self.obs_noise[i] * random.normal(subk, shape=(n_samples,)))
+        z = self.obs_noise * random.normal(key, shape=(B, n_vars)) # additive gaussian noise on the z
+
+        return self.fast_sample_obs(
+            x=x,
+            z=z,
+            g_mat=g_mat,
+            theta=theta,
+            toporder=toporder)
+
+
+    def sample_obs(self, *, key, n_samples, g, theta, toporder=None, node = None, value_sampler = None):
+        """
+        Samples `n_samples` observations by doing single forward passes in topological order
+        Args:
+            key: rng
+            n_samples (int): number of samples
+            g (igraph.Graph): graph
+            theta : PyTree of parameters
+            interv: {intervened node : clamp value}
+        Returns:
+            x : [n_samples, d]
+        """
+
+        # find topological order for ancestral sampling
+        if toporder is None:
+            toporder = g.topological_sorting()
+
+        n_vars = len(g.vs)
         x = jnp.zeros((n_samples, n_vars))
-        values = value_sampler.sample(n_samples)
-        z = self.obs_noise * random.normal(key, shape=(n_samples, n_vars)) # additive gaussian noise on the z
+        z = jnp.zeros((n_samples, n_vars))
+
+        for i in range(n_vars):
+            key, subk = random.split(key)
+            # z = index_update(z, index[:, i], self.obs_noise[i] * random.normal(subk, shape=(n_samples,)))
+            z = z.at[:, i].set(self.obs_noise[i] * random.normal(subk, shape=(n_samples,)))
+
+        g_mat = graph_to_mat(g)
 
         # ancestral sampling
         # for simplicity, does d full forward passes for simplicity, which avoids indexing into python list of parameters
@@ -262,7 +367,12 @@ class DenseNonlinearGaussianJAX:
 
             # intervention
             if j == node:
-                x = x.at[:, node].set(values)
+                if hasattr(value_sampler, 'sample'):
+                    values = value_sampler.sample(n_samples)
+                else:
+                    values = value_sampler
+                # x = index_update(x, index[:, j], values)
+                x = x.at[:, j].set(values)
                 continue
 
             # regular ancestral sampling
@@ -278,16 +388,17 @@ class DenseNonlinearGaussianJAX:
                 means = self.eltwise_nn_forward(theta, x_msk)
 
                 # [N,] update j only
+                #x = index_update(x, index[:, j], means[:, j] + z[:, j])
                 x = x.at[:, j].set(means[:, j] + z[:, j])
             else:
+                #x = index_update(x, index[:, j], z[:, j])
                 x = x.at[:, j].set(z[:, j])
 
         return x
 
-
     def log_prob_parameters(self, *, theta, w):
         """log p(theta | g)
-        Assumes N(mean_edge, sig_edge^2) distribution for any given edge 
+        Assumes N(mean_edge, sig_edge^2) distribution for any given edge
 
         Args:
             theta: parmeter PyTree
@@ -308,20 +419,20 @@ class DenseNonlinearGaussianJAX:
             first_weight_logprobs,  = logprobs[0]
             logprobs[0] = (first_weight_logprobs * w.T[:, :, None],)
 
-        # sum logprobs of every parameter tensor and add all up 
+        # sum logprobs of every parameter tensor and add all up
         return tree_reduce(jnp.add, tree_map(jnp.sum, logprobs))
 
 
     def log_likelihood(self, *, data, theta, w, interv_targets):
         """log p(x | theta, G)
         Assumes N(mean_obs, obs_noise^2) distribution for any given observation
-        
+
         Args:
             data: observations [N, d]
             theta: parameter PyTree
             w: adjacency matrix [n_vars, n_vars]
             interv_targets: boolean indicator of intervention locations [n_vars, ]
-        
+
         Returns:
             logprob [1, ]
         """
@@ -329,7 +440,7 @@ class DenseNonlinearGaussianJAX:
         # [d2, N, d] = [1, N, d] * [d2, 1, d] mask non-parent entries of each j
         all_x_msk = data[None] * w.T[:, None]
 
-        # [N, d2] NN forward passes for parameters of each param j 
+        # [N, d2] NN forward passes for parameters of each param j
         all_means = self.double_eltwise_nn_forward(theta, all_x_msk)
 
         # sum scores for all nodes and data
@@ -342,17 +453,17 @@ class DenseNonlinearGaussianJAX:
                 jax_normal.logpdf(x=data, loc=all_means, scale=self.obs_noise)
             )
         )
-    
+
     def log_likelihood_single(self, *, data, theta, w, interv_targets):
         """log p(x | theta, G)
         Assumes N(mean_obs, obs_noise^2) distribution for any given observation
-        
+
         Args:
             data: observations [N, d]
             theta: parameter PyTree
             w: adjacency matrix [n_vars, n_vars]
             interv_targets: boolean indicator of intervention locations [n_vars, ]
-        
+
         Returns:
             logprob [1, ]
         """
@@ -360,7 +471,7 @@ class DenseNonlinearGaussianJAX:
         # [d2, N, d] = [1, N, d] * [d2, 1, d] mask non-parent entries of each j
         all_x_msk = data[None] * w.T[:, None]
 
-        # [N, d2] NN forward passes for parameters of each param j 
+        # [N, d2] NN forward passes for parameters of each param j
         all_means = self.double_eltwise_nn_forward(theta, all_x_msk)
 
         # sum scores for all nodes and data

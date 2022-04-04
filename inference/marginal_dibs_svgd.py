@@ -35,13 +35,13 @@ class MarginalDiBS(DiBS):
 
 
     def __init__(self, *, kernel, target_log_prior, target_log_marginal_prob, alpha_linear, beta_linear=1.0, tau=1.0,
-                 optimizer=dict(name='rmsprop', stepsize=0.005), n_grad_mc_samples=128, n_acyclicity_mc_samples=32, 
+                 optimizer=dict(name='rmsprop', stepsize=0.005), n_grad_mc_samples=128, n_acyclicity_mc_samples=32,
                  grad_estimator_z='score', score_function_baseline=0.0,
                  latent_prior_std=None, verbose=False):
 
         """
         To unify the function signatures for the marginal and joint inference classes `MarginalDiBS` and `JointDiBS`,
-        we define a marginal log likelihood variant with dummy parameter inputs. This will allow using the same 
+        we define a marginal log likelihood variant with dummy parameter inputs. This will allow using the same
         gradient estimator functions for both inference cases.
         """
         target_log_marginal_prob_extra_args = lambda single_z, single_theta, data, interv_targets, rng: target_log_marginal_prob(single_z, data, interv_targets)
@@ -71,22 +71,22 @@ class MarginalDiBS(DiBS):
         Args:
             key: rng key
             n_particles: number of particles for SVGD
-            n_particles: number of variables `d` in inferred BN 
+            n_particles: number of variables `d` in inferred BN
             n_dim: size of latent dimension `k`. Defaults to `n_vars`, s.t. k == d
 
         Returns:
-            z: batch of latent tensors [n_particles, d, k, 2]    
+            z: batch of latent tensors [n_particles, d, k, 2]
         """
         # default full rank
         if n_dim is None:
-            n_dim = n_vars 
-        
+            n_dim = n_vars
+
         # like prior
         std = self.latent_prior_std or (1.0 / jnp.sqrt(n_dim))
 
         # sample
         key, subk = random.split(key)
-        z = random.normal(subk, shape=(n_particles, n_vars, n_dim, 2)) * std        
+        z = random.normal(subk, shape=(n_particles, n_vars, n_dim, 2)) * std
 
         return z
 
@@ -98,14 +98,14 @@ class MarginalDiBS(DiBS):
         Args:
             x_latent: latent tensor [d, k, 2]
             y_latent: latent tensor [d, k, 2]
-            h (float): kernel bandwidth 
+            h (float): kernel bandwidth
             t: step
 
         Returns:
             [1, ] kernel value
         """
         return self.kernel.eval(x=x_latent, y=y_latent, h=h)
-    
+
 
     def f_kernel_mat(self, x_latents, y_latents, h, t):
         """
@@ -114,13 +114,13 @@ class MarginalDiBS(DiBS):
         Args:
             x_latents: latent tensor [A, d, k, 2]
             y_latents: latent tensor [B, d, k, 2]
-            h (float): kernel bandwidth 
+            h (float): kernel bandwidth
             t: step
 
         Returns:
             [A, B] kernel values
         """
-        return vmap(vmap(self.f_kernel, (None, 0, None, None), 0), 
+        return vmap(vmap(self.f_kernel, (None, 0, None, None), 0),
             (0, None, None, None), 0)(x_latents, y_latents, h, t)
 
 
@@ -131,32 +131,32 @@ class MarginalDiBS(DiBS):
         Args:
             x_latents: batch of latent particles [n_particles, d, k, 2]
             y_latent: single latent particle [d, k, 2] (z')
-            h (float): kernel bandwidth 
+            h (float): kernel bandwidth
             t: step
 
         Returns:
             batch of gradients for latent tensors Z [n_particles, d, k, 2]
-        """        
+        """
         grad_kernel_z = grad(self.f_kernel, 0)
         return vmap(grad_kernel_z, (0, None, None, None), 0)(x_latents, y_latent, h, t)
 
 
     def z_update(self, single_z, kxx, z, grad_log_prob_z, h, t):
         """
-        Computes SVGD update for `single_z` particlee given the kernel values 
-        `kxx` and the d/dz gradients of the target density for each of the available particles 
+        Computes SVGD update for `single_z` particlee given the kernel values
+        `kxx` and the d/dz gradients of the target density for each of the available particles
 
         Args:
             single_z: single latent tensor Z [d, k, 2], which is the Z particle being updated
-            kxx: pairwise kernel values for all particles [n_particles, n_particles]  
-            z:  all latent tensor Z particles [n_particles, d, k, 2] 
-            grad_log_prob_z: gradients of all Z particles w.r.t target density  [n_particles, d, k, 2]  
+            kxx: pairwise kernel values for all particles [n_particles, n_particles]
+            z:  all latent tensor Z particles [n_particles, d, k, 2]
+            grad_log_prob_z: gradients of all Z particles w.r.t target density  [n_particles, d, k, 2]
 
         Returns
-            transform vector of shape [d, k, 2] for the Z particle being updated        
+            transform vector of shape [d, k, 2] for the Z particle being updated
 
         """
-    
+
         # compute terms in sum
         weighted_gradient_ascent = kxx[..., None, None, None] * grad_log_prob_z
         repulsion = self.eltwise_grad_kernel_z(z, single_z, h, t)
@@ -189,7 +189,7 @@ class MarginalDiBS(DiBS):
         Returns:
             the updated inputs
         """
-     
+
         z = self.get_params(opt_state_z) # [n_particles, d, k, 2]
         n_particles = z.shape[0]
 
@@ -197,18 +197,18 @@ class MarginalDiBS(DiBS):
         h = self.kernel.h
 
         # d/dz log p(D | z)
-        key, *batch_subk = random.split(key, n_particles + 1) 
+        key, *batch_subk = random.split(key, n_particles + 1)
         dz_log_likelihood, sf_baseline = self.eltwise_grad_z_likelihood(z, None, sf_baseline, t, data, interv_targets, jnp.array(batch_subk))
-        # here `None` is a placeholder for theta (in the joint inference case) 
+        # here `None` is a placeholder for theta (in the joint inference case)
         # since this is an inherited function from the general `DiBS` class
 
         # d/dz log p(z) (acyclicity)
         key, *batch_subk = random.split(key, n_particles + 1)
         dz_log_prior = self.eltwise_grad_latent_prior(z, jnp.array(batch_subk), t)
 
-        # d/dz log p(z, D) = d/dz log p(z)  + log p(D | z) 
+        # d/dz log p(z, D) = d/dz log p(z)  + log p(D | z)
         dz_log_prob = dz_log_prior + dz_log_likelihood
-        
+
         # k(z, z) for all particles
         kxx = self.f_kernel_mat(z, z, h, t)
 
@@ -220,8 +220,7 @@ class MarginalDiBS(DiBS):
         opt_state_z = self.opt_update(t, phi_z, opt_state_z)
 
         return opt_state_z, key, sf_baseline
-    
-    
+
 
     def sample_particles(self, *, n_steps, init_particles_z, data, interv_targets, key, callback=None, callback_every=0):
         """
@@ -232,15 +231,15 @@ class MarginalDiBS(DiBS):
             init_particles_z: batch of initialized latent tensor particles [n_particles, d, k, 2]
             key: prng key
             callback: function to be called every `callback_every` steps of SVGD.
-            callback_every: if == 0, `callback` is never called. 
+            callback_every: if == 0, `callback` is never called.
 
-        Returns: 
+        Returns:
             `n_particles` samples that approximate the DiBS target density
             particles_z: [n_particles, d, k, 2]
         """
 
         z = init_particles_z
-           
+
         # initialize score function baseline (one for each particle)
         n_particles, _, n_dim, _ = z.shape
         sf_baseline = jnp.zeros(n_particles)
@@ -262,7 +261,7 @@ class MarginalDiBS(DiBS):
             opt = optimizers.rmsprop(self.optimizer['stepsize'])
         else:
             raise ValueError()
-        
+
         opt_init, self.opt_update, get_params = opt
         self.get_params = jit(get_params)
         opt_state_z = opt_init(z)
@@ -270,7 +269,7 @@ class MarginalDiBS(DiBS):
         """Execute particle update steps for all particles in parallel using `vmap` functions"""
         it = tqdm.tqdm(range(n_steps), desc='DiBS', disable=not self.verbose)
         for t in it:
-            
+
             # perform one SVGD step (compiled with @jit)
             opt_state_z, key, sf_baseline  = self.svgd_step(
                 opt_state_z, data, interv_targets, key, t, sf_baseline)

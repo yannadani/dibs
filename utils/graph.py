@@ -1,4 +1,4 @@
-import functools 
+import functools
 
 import igraph as ig
 import itertools
@@ -6,11 +6,11 @@ import os
 import pathlib
 import tqdm
 
-import numpy as onp 
+import numpy as onp
 
 import jax.numpy as jnp
 from jax import jit, vmap
-from jax.ops import index, index_update
+#from jax.ops import index, index_update
 from jax import random
 
 from ..exceptions import InvalidCPDAGError
@@ -39,7 +39,7 @@ def acyclic_constr(mat, n_vars):
     h = jnp.trace(M_mult @ M) - n_vars
 
     # gradient_h = M_mult.T * mat * 2 # [original version]
-    gradient_h = M_mult.T 
+    gradient_h = M_mult.T
 
     return h, gradient_h
 
@@ -51,7 +51,7 @@ def acyclic_constr_nograd(mat, n_vars):
         http://proceedings.mlr.press/v97/yu19a/yu19a.pdf
 
         mat:  [n_vars, n_vars]
-        out:  [1, ] constraint value 
+        out:  [1, ] constraint value
 
     """
 
@@ -68,7 +68,7 @@ elwise_acyclic_constr_nograd = jit(vmap(acyclic_constr_nograd, (0, None), 0), st
 @functools.partial(jit, static_argnums=(1,))
 def eltwise_acyclic_constr(mat, n_vars):
     """
-        Elementwise (batched) differentiable acyclicity constraint from  
+        Elementwise (batched) differentiable acyclicity constraint from
         Yu et al 2019
         http://proceedings.mlr.press/v97/yu19a/yu19a.pdf
 
@@ -95,7 +95,7 @@ def eltwise_acyclic_constr(mat, n_vars):
 
 def random_consistent_expansion(*, key, cpdag):
     """
-    Generates a "consistent extension" DAG of a CPDAG as defined by 
+    Generates a "consistent extension" DAG of a CPDAG as defined by
     https://www.jmlr.org/papers/volume3/chickering02b/chickering02b.pdf
     i.e. a graph where DAG and CPDAG have the same skeleton and v-structures
     and every directed edge in the CPDAG has the same direction in the DAG
@@ -107,7 +107,7 @@ def random_consistent_expansion(*, key, cpdag):
 
     Args:
         key: rng
-        cpdag: adjacency matrix of a CPDAG[n_vars, n_vars] 
+        cpdag: adjacency matrix of a CPDAG[n_vars, n_vars]
             breaks if it is not a valid CPDAG (merely a PDAG)
             (i.e. if cannot be extended to a DAG, e.g. undirected ring graph)
 
@@ -142,14 +142,14 @@ def random_consistent_expansion(*, key, cpdag):
 
             if node_exists[i] == 0:
                 continue
-            
+
             # no outgoing _directed_ edges: (i,j) doesn't exist, or, (j,i) also does
             directed_i_out = A[i, :] == 1
             directed_i_in = A[:, i] == 1
 
             is_sink = jnp.all((1 - directed_i_out) | directed_i_in)
-            if not is_sink: 
-                continue 
+            if not is_sink:
+                continue
 
             # for each undirected neighbor j of sink i
             i_valid_candidate = True
@@ -161,8 +161,8 @@ def random_consistent_expansion(*, key, cpdag):
                 adjacents_j = (A[j, :] == 1) | (A[:, j] == 1)
                 is_not_j = jnp.arange(N) != j
                 if jnp.any(directed_i_in & (1 - adjacents_j) & is_not_j):
-                    i_valid_candidate = False 
-                    break 
+                    i_valid_candidate = False
+                    break
 
             # i is valid, orient all edges towards i in consistent extension
             # and delete i and all adjacent egdes
@@ -171,27 +171,31 @@ def random_consistent_expansion(*, key, cpdag):
                 found_any_valid_candidate = True
 
                 # to orient G towards i, delete (oppositely directed) i,j edges from adjacency
-                G = index_update(G, index[i, jnp.where(undirected_neighbors_i)], 0)
+                #G = index_update(G, index[i, jnp.where(undirected_neighbors_i)], 0)
+                G = G.at[i, jnp.where(undirected_neighbors_i)].set(0)
 
                 # remove i in A
-                A = index_update(A, index[i, :], 0)
-                A = index_update(A, index[:, i], 0)
-                
-                node_exists = index_update(node_exists, index[i], 0)
+                #A = index_update(A, index[i, :], 0)
+                #A = index_update(A, index[:, i], 0)
+                A = A.at[i, :].set(0)
+                A = A.at[:, i].set(0)
+
+                #node_exists = index_update(node_exists, index[i], 0)
+                node_exists = node_exists.at[i].set(0)
 
                 n_left -= 1
 
                 break
-        
+
         if not found_any_valid_candidate:
             err_msg = (
                 'found_any_valid_candidate = False; unable to create random consistent extension of CPDAG: ' + adjmat_to_str(cpdag) +
                 ' | G: ' + adjmat_to_str(G) +
-                ' | A: ' + adjmat_to_str(A) + 
+                ' | A: ' + adjmat_to_str(A) +
                 ' | ordering : ' + str(ordering.tolist())
             )
             raise InvalidCPDAGError(err_msg)
-        
+
     return G
 
 
@@ -283,7 +287,7 @@ def adjmat_to_str(mat, max_len=40):
                 # check not printed yet
                 if e not in undir_ignore:
                     undir_ignore.add((v, u))
-                    yield (u, v, True) 
+                    yield (u, v, True)
             else:
                 yield (u, v, False)
 

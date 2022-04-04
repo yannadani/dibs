@@ -3,7 +3,7 @@ from scipy.stats import multivariate_normal
 
 import jax.numpy as jnp
 from jax import random
-from jax.ops import index, index_update
+#from jax.ops import index, index_update
 from jax.scipy.stats import norm as jax_normal
 
 from .basic import BasicModel
@@ -14,7 +14,7 @@ class LinearGaussian(BasicModel):
     Linear Gaussian BN model (continuous variables)
     corresponding to linear structural equation model (SEM) with Gaussian noise
 
-    Each variable distributed as Gaussian with mean being the linear combination of its parents 
+    Each variable distributed as Gaussian with mean being the linear combination of its parents
     weighted by a Gaussian parameter vector (i.e., with Gaussian-valued edges).
     """
 
@@ -37,7 +37,7 @@ class LinearGaussian(BasicModel):
         key, subk = random.split(key)
         theta = self.mean_edge + self.sig_edge * random.normal(subk, shape=(len(g.vs), len(g.vs)))
         return theta
-    
+
     def sample_obs(self, *, key, n_samples, g, theta, toporder=None, interv={}):
         """Samples `n_samples` observations given graph and parameters
         Args:
@@ -48,7 +48,7 @@ class LinearGaussian(BasicModel):
             interv: {intervened node : clamp value}
 
         Returns:
-            x : [n_samples, d] 
+            x : [n_samples, d]
         """
         if toporder is None:
             toporder = g.topological_sorting()
@@ -63,35 +63,38 @@ class LinearGaussian(BasicModel):
 
             # intervention
             if j in interv.keys():
-                x = index_update(x, index[:, j], interv[j])
+                #x = index_update(x, index[:, j], interv[j])
+                x = x.at[:, j].set(interv[j])
                 continue
-            
+
             # regular ancestral sampling
             parent_edges = g.incident(j, mode='in')
             parents = list(g.es[e].source for e in parent_edges)
 
             if parents:
                 mean = x[:, jnp.array(parents)] @ theta[jnp.array(parents), j]
-                x = index_update(x, index[:, j], mean + z[:, j])
+                #x = index_update(x, index[:, j], mean + z[:, j])
+                x = x.at[:, j].set(mean + z[:, j])
             else:
-                x = index_update(x, index[:, j], z[:, j])
+                #x = index_update(x, index[:, j], z[:, j])
+                x  =x.at[:, j].set(z[:, j])
 
         return x
-    
+
     def log_prob_parameters(self, *, theta, g):
         """log p(theta | g)
-        Assumes N(mean_edge, sig_edge^2) distribution for any given edge 
+        Assumes N(mean_edge, sig_edge^2) distribution for any given edge
         In the linear Gaussian model, g does not matter.
-        
+
         Args:
             g (igraph.Graph): graph
             theta : parameters
-        
+
         Returns:
             [1, ]
         """
         logprob = 0.0
-        # done analogously to `sample_obs` to ensure indexing into theta matrix 
+        # done analogously to `sample_obs` to ensure indexing into theta matrix
         # is consistent and not silently messed up by e.g. ig.Graph vertex index naming
         for j in range(len(g.vs)):
             parent_edges = g.incident(j, mode='in')
@@ -106,22 +109,22 @@ class LinearGaussian(BasicModel):
     def log_likelihood(self, *, x, theta, g):
         """log p(x | theta, G)
         Assumes N(mean_obs, obs_noise) distribution for any given observation
-        
+
         Args:
             g (igraph.Graph): graph
             theta : parameters
-            x : [n_samples, d] 
+            x : [n_samples, d]
 
         Returns:
             [1, ]
         """
-        n_vars = x.shape[-1]    
+        n_vars = x.shape[-1]
         logp = 0.0
 
         for j in range(n_vars):
             parent_edges = g.incident(j, mode='in')
             parents = list(g.es[e].source for e in parent_edges)
-            
+
             if parents:
                 mean = x[:, jnp.array(parents)] @ theta[jnp.array(parents), j]
             else:
@@ -133,12 +136,12 @@ class LinearGaussian(BasicModel):
         return logp
 
     def log_marginal_likelihood_given_g_single(self, g, x, j):
-        """Computes log p(x | G) in closed form for a single node 
+        """Computes log p(x | G) in closed form for a single node
         using conjugacy properties of Gaussian
 
         Args:
             g (igraph.Graph): graph
-            x : [n_samples, d] 
+            x : [n_samples, d]
             j (int): node index for score
 
         Returns:
@@ -149,7 +152,7 @@ class LinearGaussian(BasicModel):
         parent_edges = g.incident(j, mode='in')
         parents = list(g.es[e].source for e in parent_edges)
         n_parents = len(parents)
-        
+
         # mean
         mean_theta_j = self.mean_edge * jnp.ones(n_parents)
         mean_j = x[..., parents] @ mean_theta_j
@@ -169,7 +172,7 @@ class LinearGaussian(BasicModel):
 
         Args:
             g (igraph.Graph): graph
-            x : [n_samples, d] 
+            x : [n_samples, d]
 
         Returns:
             [1, ]
@@ -181,15 +184,15 @@ class LinearGaussian(BasicModel):
         return logp
 
 
-"""	
-+++++   JAX implementation +++++	
+"""
++++++   JAX implementation +++++
 """
 
 
 class LinearGaussianJAX:
-    """	
-    LinearGaussianas above but using JAX and adjacency matrix representation	
-    jit() and vmap() not yet implemented for this score as it tricky with indexing	
+    """
+    LinearGaussianas above but using JAX and adjacency matrix representation
+    jit() and vmap() not yet implemented for this score as it tricky with indexing
     """
 
     def __init__(self, *, obs_noise, mean_edge, sig_edge, verbose=False):
@@ -207,7 +210,7 @@ class LinearGaussianJAX:
 
 
     def init_parameters(self, *, key, n_vars, n_particles, batch_size=0):
-        """Samples batch of random parameters given dimensions of graph, from p(theta | G) 
+        """Samples batch of random parameters given dimensions of graph, from p(theta | G)
         Args:
             key: rng
             n_vars: number of variables in BN
@@ -218,7 +221,7 @@ class LinearGaussianJAX:
             theta : [n_particles, n_vars, n_vars]
         """
         key, subk = random.split(key)
-        
+
         if batch_size == 0:
             theta = self.mean_edge + self.sig_edge * random.normal(subk, shape=(n_particles, *self.get_theta_shape(n_vars=n_vars)))
         else:
@@ -231,8 +234,8 @@ class LinearGaussianJAX:
         """Computes log p(x | G) in closed form using properties of Gaussian
 
         Args:
-            data : [n_samples, n_vars]	
-            w:     [n_vars, n_vars]	
+            data : [n_samples, n_vars]
+            w:     [n_vars, n_vars]
 
         Returns:
             [1, ]
@@ -253,13 +256,13 @@ class LinearGaussianJAX:
 
     def log_prob_parameters(self, *, theta, w):
         """log p(theta | g)
-        Assumes N(mean_edge, sig_edge^2) distribution for any given edge 
+        Assumes N(mean_edge, sig_edge^2) distribution for any given edge
         In the linear Gaussian model, g does not matter.
-        
+
         Args:
             theta: [n_vars, n_vars]
             w: [n_vars, n_vars]
-            
+
         Returns:
             [1, ]
         """

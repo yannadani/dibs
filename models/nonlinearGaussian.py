@@ -174,119 +174,7 @@ class DenseNonlinearGaussianJAX:
         return theta
 
 
-
-    #@partial(jit, static_argnums=(0,))
-    def fast_sample_obs(self, x, z, g_mat, theta, toporder):
-        """
-        Samples `n_samples` observations by doing single forward passes in topological order
-        Args:
-            key: rng
-            n_samples (int): number of samples
-            g_mat: adjacency matrix
-            toporder: topopoligcal order of the graph nodes
-            theta : PyTree of parameters
-            interv: {intervened node : clamp value}
-
-        Returns:
-            x : [n_samples, d]
-        """
-
-        # ancestral sampling
-        # does d full forward passes for simplicity,
-        # which avoids indexing into python list of parameters
-
-        # permute
-        #t_x = jax.vmap(lambda arr, t: arr[t])(x, toporder)
-        #t_z = jax.vmap(lambda arr, t: arr[t])(z, toporder)
-        #t_xgmat = jax.vmap(lambda arr, t, g: arr[t]*g[:, t], (0, 0, None))(z, toporder, g_mat)
-
-        # x = lax.fori_loop(
-        #         0,
-        #         toporder.shape[1],
-        #         lambda j, arr: arr.at[:, j].set(
-        #             jnp.where(
-        #                 g_mat[:, j].sum() > 0,
-        #                 self.eltwise_nn_forward(theta, t_xgmat[..., j])[:, j] + z[:, j],  # if has_parents
-        #                 z[:, j]) # else
-        #             )
-        #         ,
-        #         x
-        #     )
-        # import pdb; pdb.set_trace()
-        # x = jax.vmap(
-        #     lambda x, z, t_xgmat, g, theta: lax.fori_loop(
-        #         0,
-        #         toporder.shape[1],
-        #         lambda j, arr: arr.at[:, t].set(
-        #             jnp.where(
-        #                 g[:, j].sum() > 0,
-        #                 self.eltwise_nn_forward(theta, t_xgmat[..., j])[:, j] + z[:, j],  # if has_parents
-        #                 z[:, j]) # else
-        #             )
-        #         ,
-        #         x
-        #     ),
-        #     (0, 0, 0, None, None)
-        # )(t_x, t_z, t_xgmat, g_mat, theta)
-
-
-        batch_index = jax.vmap(lambda arr, t: arr[t], (0, 0))
-        batch_set = jax.vmap(lambda arr, t, v: arr.at[t].set(v[t]), (0, 0, 0))
-
-
-
-        x = lax.fori_loop(
-            0,
-            toporder.shape[1],
-            lambda j, arr:
-                batch_set(
-                    x,
-                    toporder[:, j],
-                    jnp.where(
-                        (jnp.take(g_mat, toporder[:, j], axis=1).T.sum(1) > 0)[:, None], # has parents
-                        self.eltwise_nn_forward(theta, x*jnp.take(g_mat, toporder[:, j], axis=1).T) + z,
-                        z
-                    )
-                ),
-            x
-        )
-
-        # for j in range(toporder.shape[1]):
-        #     _t = toporder[:, j]
-        #     #parents = g_mat[:, j]
-        #     #has_parents = parents.sum() > 0
-
-        #     # batch version of g_mat[:, j] (where j is batched)
-        #     parents = jnp.take(g_mat, _t, axis=1).T
-        #     #xgx = x*parents
-
-        #     x = batch_set(
-        #         x,
-        #         _t,
-        #         jnp.where(
-        #             (jnp.take(g_mat, _t, axis=1).T.sum(1) > 0)[:, None],
-        #             self.eltwise_nn_forward(theta, x*jnp.take(g_mat, _t, axis=1).T) + z,
-        #             z
-        #         )
-        #     )
-            # tmp = jax.vmap(
-            #     lambda x, z, t, gx, theta: gx
-            #     # jax.vmap(
-            #     #         lambda theta, input: self.eltwise_nn_forward(theta, input),
-            #     #         (None, 0)
-            #     #     )(theta, x * g[:, t]),
-            #     # x.at[j].set(jnp.where(
-            #     #                                 g[:, j].sum() > 0,
-            #     #                                 self.eltwise_nn_forward(theta, x * g[:, j])[j] + z[j],  # if has_parents
-            #     #                                 z[j]) # else
-            #     #                             ),
-            #     (0, 0, 0, 0, None)
-            # )(x, z, _t, parents, theta)
-            # import pdb; pdb.set_trace()
-
-        return x
-
-
+    # @partial(jit, static_argnums=(0,))
     def new_sample_obs(self, *, key, n_samples, g_mat, theta, toporder, nodes = None, values = None):
 
         """
@@ -316,21 +204,92 @@ class DenseNonlinearGaussianJAX:
             # toporder = jnp.where(toporder != node, toporder, (node+1)%n_vars)
 
             # TODO: improve this ugly modulo n_vars.
-            toporder = jnp.where(toporder != nodes[:, None], toporder, (nodes[:, None]+1)%n_vars)
+            # toporder = jnp.where(toporder != nodes[:, None], toporder, (nodes[:, None]+1)%n_vars)
 
+        # toporder_msk = toporder != nodes[:, None]
 
-        # z = jnp.zeros((n_samples, n_vars))
-        # for i in range(n_vars):
-        #     key, subk = random.split(key)
-        #     z = index_update(z, index[:, i], self.obs_noise[i] * random.normal(subk, shape=(n_samples,)))
+        # lax.fori_loop(0, n_vars, lambda j, arr: toporder[:, j] == nodes[:, None], jnp.zeros(128, 5))
+        # jnp.where(
+        #     toporder_msk,
+
+        # )
+        # import pdb; pdb.set_trace()
+
         z = self.obs_noise * random.normal(key, shape=(B, n_vars)) # additive gaussian noise on the z
 
-        return self.fast_sample_obs(
-            x=x,
-            z=z,
-            g_mat=g_mat,
-            theta=theta,
-            toporder=toporder)
+        batch_index = jax.vmap(lambda arr, t: arr[t], (0, 0))
+        batch_set = jax.vmap(lambda arr, t, v: arr.at[t].set(v[t]), (0, 0, 0))
+
+        # import pdb; pdb.set_trace()
+
+        # x = lax.fori_loop(
+        #     0,
+        #     n_vars,
+        #     lambda j, arr:
+        #         jnp.where(
+        #             toporder[:, j] != nodes,
+        #             #
+        #             batch_set(
+        #                 x,
+        #                 toporder[:, j],
+        #                 jnp.where(
+        #                     (jnp.take(g_mat, toporder[:, j], axis=1).T.sum(1) > 0)[:, None], # has parents
+        #                     self.eltwise_nn_forward(theta, x*jnp.take(g_mat, toporder[:, j], axis=1).T) + z,
+        #                     z
+        #                 )
+        #             )
+        #         ),
+        #     x
+        # )
+
+        toporder = toporder[None].repeat(B, 0)
+        # for j in range(n_vars):
+        #     x = batch_set(
+        #             x,
+        #             toporder[:, j],
+        #             jnp.where(
+        #                 (toporder[:, j] == nodes)[:, None],
+        #                 # same as node
+        #                 x
+        #                 ,
+        #                 # not same as node
+        #                 jnp.where(
+        #                     (jnp.take(g_mat, toporder[:, j], axis=1).T.sum(1) > 0)[:, None], # has parents
+        #                     self.eltwise_nn_forward(theta, x*jnp.take(g_mat, toporder[:, j], axis=1).T) + z,
+        #                     z
+        #                 )
+        #             )
+        #         )
+
+        x = lax.fori_loop(
+            0,
+            n_vars,
+            lambda j, arr:
+                batch_set(
+                    arr,
+                    toporder[:, j],
+                    # jnp.where(
+                    #     (jnp.take(g_mat, toporder[:, j], axis=1).T.sum(1) > 0)[:, None], # has parents
+                    #     self.eltwise_nn_forward(theta, x*jnp.take(g_mat, toporder[:, j], axis=1).T) + z,
+                    #     z
+                    # )
+                    jnp.where(
+                        (toporder[:, j] == nodes)[:, None],
+                        # same as node
+                        x
+                        ,
+                        # not same as node
+                        jnp.where(
+                            (jnp.take(g_mat, toporder[:, j], axis=1).T.sum(1) > 0)[:, None], # has parents
+                            self.eltwise_nn_forward(theta, x*jnp.take(g_mat, toporder[:, j], axis=1).T) + z,
+                            z
+                        )
+                    )
+                ),
+            x
+        )
+
+        return x
 
 
     def sample_obs(self, *, key, n_samples, g, theta, toporder=None, node = None, value_sampler = None):

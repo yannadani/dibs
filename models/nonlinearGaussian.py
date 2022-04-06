@@ -175,7 +175,7 @@ class DenseNonlinearGaussianJAX:
 
 
     # @partial(jit, static_argnums=(0,))
-    def new_sample_obs(self, *, key, n_samples, g_mat, theta, toporder, nodes = None, values = None):
+    def new_sample_obs(self, *, key, n_samples, g_mat, theta, toporder, nodes = None, values = None, deterministic=False):
 
         """
         Samples `n_samples` observations by doing single forward passes in topological order
@@ -189,78 +189,28 @@ class DenseNonlinearGaussianJAX:
         Returns:
             x : [n_samples, d]
         """
+
         n_vars = g_mat.shape[0]
         B = nodes.shape[0]
-        x = jnp.zeros((B, n_vars))
+
+        nodes = nodes.repeat(n_samples, 0)
+        values = values.repeat(n_samples, 0)
+
+        x = jnp.zeros((B*n_samples, n_vars))
         if nodes is not None:
             if hasattr(values, 'sample'):
                 values = values.sample(n_samples)
-            # x = x.at[:, node].set(values)
-            # import pdb; pdb.set_trace()
-            #x = x.at[node].set(values)
             x = jax.vmap(lambda arr, idx, vals: arr.at[idx].set(vals))(x, nodes, values)
 
-            #toporder = toporder[toporder != node]
-            # toporder = jnp.where(toporder != node, toporder, (node+1)%n_vars)
+        z = self.obs_noise * random.normal(key, shape=(B*n_samples, n_vars)) # additive gaussian noise on the z
+        if deterministic:
+            z = 0*z
 
-            # TODO: improve this ugly modulo n_vars.
-            # toporder = jnp.where(toporder != nodes[:, None], toporder, (nodes[:, None]+1)%n_vars)
-
-        # toporder_msk = toporder != nodes[:, None]
-
-        # lax.fori_loop(0, n_vars, lambda j, arr: toporder[:, j] == nodes[:, None], jnp.zeros(128, 5))
-        # jnp.where(
-        #     toporder_msk,
-
-        # )
-        # import pdb; pdb.set_trace()
-
-        z = self.obs_noise * random.normal(key, shape=(B, n_vars)) # additive gaussian noise on the z
-
+        # some helpers
         batch_index = jax.vmap(lambda arr, t: arr[t], (0, 0))
         batch_set = jax.vmap(lambda arr, t, v: arr.at[t].set(v[t]), (0, 0, 0))
 
-        # import pdb; pdb.set_trace()
-
-        # x = lax.fori_loop(
-        #     0,
-        #     n_vars,
-        #     lambda j, arr:
-        #         jnp.where(
-        #             toporder[:, j] != nodes,
-        #             #
-        #             batch_set(
-        #                 x,
-        #                 toporder[:, j],
-        #                 jnp.where(
-        #                     (jnp.take(g_mat, toporder[:, j], axis=1).T.sum(1) > 0)[:, None], # has parents
-        #                     self.eltwise_nn_forward(theta, x*jnp.take(g_mat, toporder[:, j], axis=1).T) + z,
-        #                     z
-        #                 )
-        #             )
-        #         ),
-        #     x
-        # )
-
-        toporder = toporder[None].repeat(B, 0)
-        # for j in range(n_vars):
-        #     x = batch_set(
-        #             x,
-        #             toporder[:, j],
-        #             jnp.where(
-        #                 (toporder[:, j] == nodes)[:, None],
-        #                 # same as node
-        #                 x
-        #                 ,
-        #                 # not same as node
-        #                 jnp.where(
-        #                     (jnp.take(g_mat, toporder[:, j], axis=1).T.sum(1) > 0)[:, None], # has parents
-        #                     self.eltwise_nn_forward(theta, x*jnp.take(g_mat, toporder[:, j], axis=1).T) + z,
-        #                     z
-        #                 )
-        #             )
-        #         )
-
+        toporder = toporder[None].repeat(B*n_samples, 0)
         x = lax.fori_loop(
             0,
             n_vars,
@@ -268,17 +218,12 @@ class DenseNonlinearGaussianJAX:
                 batch_set(
                     arr,
                     toporder[:, j],
-                    # jnp.where(
-                    #     (jnp.take(g_mat, toporder[:, j], axis=1).T.sum(1) > 0)[:, None], # has parents
-                    #     self.eltwise_nn_forward(theta, x*jnp.take(g_mat, toporder[:, j], axis=1).T) + z,
-                    #     z
-                    # )
                     jnp.where(
                         (toporder[:, j] == nodes)[:, None],
-                        # same as node
+                        # same as intervention node - keep the value
                         x
                         ,
-                        # not same as node
+                        # not same - update with f(parents) or z
                         jnp.where(
                             (jnp.take(g_mat, toporder[:, j], axis=1).T.sum(1) > 0)[:, None], # has parents
                             self.eltwise_nn_forward(theta, x*jnp.take(g_mat, toporder[:, j], axis=1).T) + z,
@@ -289,10 +234,12 @@ class DenseNonlinearGaussianJAX:
             x
         )
 
+        x = x.reshape(B, n_samples, n_vars)
+
         return x
 
 
-    def sample_obs(self, *, key, n_samples, g, theta, toporder=None, node = None, value_sampler = None):
+    def sample_obs(self, *, key, n_samples, g, theta, toporder=None, node = None, value_sampler = None, deterministic=False):
         """
         Samples `n_samples` observations by doing single forward passes in topological order
         Args:
@@ -313,10 +260,11 @@ class DenseNonlinearGaussianJAX:
         x = jnp.zeros((n_samples, n_vars))
         z = jnp.zeros((n_samples, n_vars))
 
-        for i in range(n_vars):
-            key, subk = random.split(key)
-            # z = index_update(z, index[:, i], self.obs_noise[i] * random.normal(subk, shape=(n_samples,)))
-            z = z.at[:, i].set(self.obs_noise[i] * random.normal(subk, shape=(n_samples,)))
+        if not deterministic:
+            for i in range(n_vars):
+                key, subk = random.split(key)
+                # z = index_update(z, index[:, i], self.obs_noise[i] * random.normal(subk, shape=(n_samples,)))
+                z = z.at[:, i].set(self.obs_noise[i] * random.normal(subk, shape=(n_samples,)))
 
         g_mat = graph_to_mat(g)
 

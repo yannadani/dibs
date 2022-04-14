@@ -173,72 +173,7 @@ class DenseNonlinearGaussianJAX:
 
         return theta
 
-
-    # @partial(jit, static_argnames=('self', 'deterministic'))
-    # def new_sample_obs(self, *, key, g_mat, theta, toporder, nodes=None, values=None, deterministic=False):
-    #     """
-    #     Samples `n_samples` observations by doing single forward passes in topological order
-    #     Args:
-    #         key: rng
-    #         g_mat: adjacency matrix
-    #         theta: parameters of the conditional distributions
-    #         toporder: topological ordering of the DAG
-    #         nodes: nodes to intervene on
-    #         values: values to intervene with
-
-    #     Returns:
-    #         x : [B, n_samples, d]
-    #     """
-
-    #     n_vars = g_mat.shape[0]
-    #     B, n_samples = nodes.shape
-
-    #     nodes = nodes.reshape(B*n_samples)
-    #     values = values.reshape(B*n_samples)
-    #     toporder = toporder.reshape(B*n_samples, n_vars)
-
-    #     x = jnp.zeros((B*n_samples, n_vars))
-    #     if nodes is not None:
-    #         if hasattr(values, 'sample'):
-    #             values = values.sample(n_samples)
-    #         x = jax.vmap(lambda arr, idx, vals: arr.at[idx].set(vals))(x, nodes, values)
-
-    #     z = self.obs_noise * random.normal(key, shape=(B*n_samples, n_vars)) # additive gaussian noise on the z
-    #     if deterministic:
-    #         z = 0*z
-
-    #     # some helpers
-    #     batch_index = jax.vmap(lambda arr, t: arr[t], (0, 0))
-    #     batch_set = jax.vmap(lambda arr, t, v: arr.at[t].set(v[t]), (0, 0, 0))
-
-    #     x = lax.fori_loop(
-    #         0,
-    #         n_vars,
-    #         lambda j, arr:
-    #             batch_set(
-    #                 arr,
-    #                 toporder[:, j],
-    #                 jnp.where(
-    #                     (toporder[:, j] == nodes)[:, None],
-    #                     # same as intervention node - keep the value
-    #                     arr
-    #                     ,
-    #                     # not same - update with f(parents) or z
-    #                     jnp.where(
-    #                         (jnp.take(g_mat, toporder[:, j], axis=1).T.sum(1) > 0)[:, None], # has parents
-    #                         self.eltwise_nn_forward(theta, arr*jnp.take(g_mat, toporder[:, j], axis=1).T) + z,
-    #                         z
-    #                     )
-    #                 )
-    #             ),
-    #         x
-    #     )
-
-    #     x = x.reshape(B, n_samples, n_vars)
-
-    #     return x
-
-    # @partial(jit, static_argnums=(0,))
+    @partial(jit, static_argnums=(0,))
     def fast_sample_obs(self, x, z, g_mat, theta, node, toporder):
         """
         Samples `n_samples` observations by doing single forward passes in topological order
@@ -301,12 +236,15 @@ class DenseNonlinearGaussianJAX:
             toporder = g.topological_sorting()
 
         x = jnp.zeros((n_samples, n_vars))
-        values = value_sampler.sample(n_samples)
-        x = x.at[:, node].set(values)
+
+        if node is not None:
+            values = value_sampler.sample(n_samples)
+            x = x.at[:, node].set(values)
+
         z = self.obs_noise * random.normal(key, shape=(n_samples, n_vars)) # additive gaussian noise on the z
         if deterministic:
             z = 0*z
-        #mutilated_toporder = jnp.array([i for i in toporder if i != node])
+
         toporder = jnp.array(toporder)
 
         return self.fast_sample_obs(
@@ -341,14 +279,8 @@ class DenseNonlinearGaussianJAX:
             self.fast_sample_obs,
             (0, 0, None, None, 0, 0)
         )(x, z, g_mat, theta, nodes, toporder)
-        #import pdb; pdb.set_trace()
-
-        #x = self.fast_sample_obs(x, z[, g_mat, theta, nodes, toporder)
-        # import pdb; pdb.set_trace()
 
         return x
-
-
 
     def old_sample_obs(self, *, key, n_samples, g, theta, toporder=None, node = None, value_sampler = None, deterministic=False):
         """

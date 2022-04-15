@@ -6,7 +6,7 @@ import random as pyrandom
 
 import jax.numpy as jnp
 from jax import random
-from jax.ops import index, index_mul
+#from jax.ops import index, index_mul
 
 from ..utils.graph import mat_to_graph, graph_to_mat, mat_is_dag
 
@@ -45,7 +45,7 @@ class GraphDistribution:
         Args:
             g: igraph.Graph
             j: node index
-        
+
         Returns:
             float
         """
@@ -57,7 +57,7 @@ class GraphDistribution:
 
         Args:
             g: igraph.Graph
-        
+
         Returns:
             float
         """
@@ -70,7 +70,7 @@ class GraphDistribution:
 
         Args:
             soft_g: [d, d] soft adjacency matrix with values in [0,1]
-        
+
         Returns:
             float
 
@@ -80,7 +80,7 @@ class GraphDistribution:
 
 class ErdosReniDAGDistribution(GraphDistribution):
     """
-    Randomly oriented Erdos-Reni random graph 
+    Randomly oriented Erdos-Reni random graph
     with prior p(G) = const
     """
 
@@ -141,7 +141,7 @@ class ErdosReniDAGDistribution(GraphDistribution):
 
 class ScaleFreeDAGDistribution(GraphDistribution):
     """
-    Randomly oriented Scale-free random graph 
+    Randomly oriented Scale-free random graph
     with prior p(G) = const
     """
 
@@ -266,19 +266,20 @@ class UniformDAGDistributionRejection(GraphDistribution):
 
     def __init__(self, n_vars, verbose=False):
         super(UniformDAGDistributionRejection, self).__init__(n_vars=n_vars, verbose=verbose)
-        self.n_vars = n_vars 
+        self.n_vars = n_vars
         self.verbose = verbose
 
     def sample_G(self, key, return_mat=False):
         """Samples uniformly random DAG by rejection sampling
             Prohibitively inefficient for n > 5
         """
-        mask_idx = index[..., jnp.arange(self.n_vars), jnp.arange(self.n_vars)]
+        #mask_idx = index[..., jnp.arange(self.n_vars), jnp.arange(self.n_vars)]
 
         while True:
             key, subk = random.split(key)
             mat = random.bernoulli(subk, p=0.5, shape=(self.n_vars, self.n_vars)).astype(jnp.int32)
-            mat = index_mul(mat, mask_idx, 0)
+            #mat = index_mul(mat, mask_idx, 0)
+            mat = mat.at[..., jnp.arange(self.n_vars), jnp.arange(self.n_vars)].multiply(0)
 
             if mat_is_dag(mat):
                 if return_mat:

@@ -216,6 +216,7 @@ class DenseNonlinearGaussianJAX:
 
         return x
 
+
     def sample_obs(self, *, key, n_samples, g, theta, toporder=None, node=None, value_sampler=None, deterministic=False):
         """
         Samples `n_samples` observations by doing single forward passes in topological order
@@ -255,6 +256,7 @@ class DenseNonlinearGaussianJAX:
             node=node,
             toporder=toporder)
 
+    @partial(jit, static_argnames=('self', 'n_samples', 'deterministic'))
     def new_sample_obs(self, *, key, g_mat, theta, toporder, n_samples, nodes=None, values=None, deterministic=False):
         n_vars = g_mat.shape[0]
         B = nodes.shape[0]

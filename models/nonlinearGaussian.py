@@ -258,10 +258,11 @@ class DenseNonlinearGaussianJAX:
         z = self.obs_noise * random.normal(key, shape=(B, n_samples, n_vars)) # additive gaussian noise on the z
         if deterministic:
             z = 0*z
-        fn = lambda arr, idx, vals: arr.at[idx].set(vals)
+        fn = lambda arr, idx, vals: arr.at[:, idx].set(vals)
         if nodes is not None:
             if hasattr(values, 'sample'):
                 values = values.sample(n_samples)
+            #import pdb;pdb.set_trace()
             x = jax.vmap(fn)(x, nodes, values)
             
 

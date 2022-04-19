@@ -14,7 +14,7 @@ from jax.nn.initializers import normal
 
 # from jax.ops import index, index_update
 
-from ..utils.graph import graph_to_mat
+from ..utils.graph import graph_to_mat, mat_to_graph
 from ..utils.tree import tree_shapes
 from functools import partial
 
@@ -191,26 +191,19 @@ class DenseNonlinearGaussianJAX:
         # ancestral sampling
         # does d full forward passes for simplicity,
         # which avoids indexing into python list of parameters
-        t = jnp.where(
-            toporder != node,
-            toporder,
-            -1 # -1 won't matter here but it works
-               #also as padding and keeping jit happy
-        )
-
-        # import pdb; pdb.set_trace()
-
+        #import pdb; pdb.set_trace()
+        t= toporder
         x = lax.fori_loop(
             0,
             len(toporder),
             lambda j, arr:
+                jnp.where(t[j] == node,
+                arr.at[:,j].set(arr[:,j]),
                 arr.at[:, t[j]].set(
-                    jnp.where(
-                        g_mat[:, t[j]].sum() > 0,
-                        self.eltwise_nn_forward(theta, arr * g_mat[:, t[j]])[:, t[j]] + z[:, t[j]],  # if has_parents
-                        z[:, t[j]]) # else
-                    )
-            ,
+                        jnp.where(
+                            g_mat[:, t[j]].sum() > 0,
+                            self.eltwise_nn_forward(theta, arr * g_mat[:, t[j]])[:, t[j]] + z[:, t[j]],  # if has_parents
+                            z[:, t[j]]))), # else
             x
         )
 
@@ -232,19 +225,17 @@ class DenseNonlinearGaussianJAX:
         g_mat = graph_to_mat(g)
         n_vars = g_mat.shape[0]
 
+        z = self.obs_noise * random.normal(key, shape=(n_samples, n_vars)) # additive gaussian noise on the z
+        if deterministic:
+            z = 0*z
+        x = jnp.zeros((n_samples, n_vars))
+        if node is not None:
+            values = value_sampler.sample(n_samples)
+            x = x.at[:, node].set(values)
         # find topological order for ancestral sampling
         if toporder is None:
             toporder = g.topological_sorting()
 
-        x = jnp.zeros((n_samples, n_vars))
-
-        if node is not None:
-            values = value_sampler.sample(n_samples)
-            x = x.at[:, node].set(values)
-
-        z = self.obs_noise * random.normal(key, shape=(n_samples, n_vars)) # additive gaussian noise on the z
-        if deterministic:
-            z = 0*z
 
         toporder = jnp.array(toporder)
 
@@ -266,16 +257,19 @@ class DenseNonlinearGaussianJAX:
         #toporder = toporder.reshape(B*n_samples, n_vars)
 
         x = jnp.zeros((B, n_samples, n_vars))
-        if nodes is not None:
-            if hasattr(values, 'sample'):
-                values = values.sample(n_samples)
-
-        fn = lambda arr, idx, vals: arr.at[idx].set(vals)
-        x = jax.vmap(fn)(x, nodes, values)
-
         z = self.obs_noise * random.normal(key, shape=(B, n_samples, n_vars)) # additive gaussian noise on the z
         if deterministic:
             z = 0*z
+        fn = lambda arr, idx, vals: arr.at[:, idx].set(vals)
+        if nodes is not None:
+            if hasattr(values, 'sample'):
+                values = values.sample(n_samples)
+            #import pdb;pdb.set_trace()
+            x = jax.vmap(fn)(x, nodes, values)
+            
+
+        
+        
 
         x = jax.vmap(
             self.fast_sample_obs,

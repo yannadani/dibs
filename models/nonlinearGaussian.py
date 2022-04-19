@@ -200,10 +200,9 @@ class DenseNonlinearGaussianJAX:
                 jnp.where(t[j] == node,
                 arr.at[:,j].set(arr[:,j]),
                 arr.at[:, t[j]].set(
-                        jnp.where(
-                            g_mat[:, t[j]].sum() > 0,
-                            self.eltwise_nn_forward(theta, arr * g_mat[:, t[j]])[:, t[j]] + z[:, t[j]],  # if has_parents
-                            z[:, t[j]]))), # else
+                        self.eltwise_nn_forward(theta, arr * g_mat[:, t[j]])[:, t[j]] + z[:, t[j]]
+                    )
+                ),
             x
         )
 
@@ -266,10 +265,6 @@ class DenseNonlinearGaussianJAX:
                 values = values.sample(n_samples)
             #import pdb;pdb.set_trace()
             x = jax.vmap(fn)(x, nodes, values)
-            
-
-        
-        
 
         x = jax.vmap(
             self.fast_sample_obs,
@@ -326,19 +321,9 @@ class DenseNonlinearGaussianJAX:
 
             has_parents = parents.sum() > 0
 
-            if has_parents:
-                # [N, d] = [N, d] * [1, d] mask non-parent entries of j
-                x_msk = x * parents
-
-                # [N, d] full forward pass
-                means = self.eltwise_nn_forward(theta, x_msk)
-
-                # [N,] update j only
-                #x = index_update(x, index[:, j], means[:, j] + z[:, j])
-                x = x.at[:, j].set(means[:, j] + z[:, j])
-            else:
-                #x = index_update(x, index[:, j], z[:, j])
-                x = x.at[:, j].set(z[:, j])
+            x_msk = x * parents
+            means = self.eltwise_nn_forward(theta, x_msk)
+            x = x.at[:, j].set(means[:, j] + z[:, j])
 
         return x
 

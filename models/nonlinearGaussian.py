@@ -47,6 +47,13 @@ def makeDenseNet(*, hidden_layers, sig_weight, sig_bias, bias=True, activation='
         stax.serial neural net object
     """
 
+    def elementwise(fun, **fun_kwargs):
+        """Layer that applies a scalar function elementwise on its inputs."""
+        init_fun = lambda rng, input_shape: (input_shape, ())
+        apply_fun = lambda params, inputs, **kwargs: fun(inputs, **fun_kwargs)
+        return init_fun, apply_fun
+
+
     # features: [hidden_layers[0], hidden_layers[0], ..., hidden_layers[-1], 1]
     if activation == 'sigmoid':
         f_activation = Sigmoid
@@ -56,6 +63,8 @@ def makeDenseNet(*, hidden_layers, sig_weight, sig_bias, bias=True, activation='
         f_activation = Relu
     elif activation == 'leakyrelu':
         f_activation = LeakyRelu
+    elif activation == 'sine':
+        f_activation = elementwise(jnp.sin)
     else:
         raise KeyError(f'Invalid activation function `{activation}`')
 
@@ -173,8 +182,8 @@ class DenseNonlinearGaussianJAX:
 
         return theta
 
-    @partial(jit, static_argnums=(0,))
-    def fast_sample_obs(self, x, z, g_mat, theta, node, toporder):
+    @partial(jit, static_argnames=('self', 'onehot'))
+    def fast_sample_obs(self, x, z, g_mat, theta, node, toporder, onehot=False):
         """
         Samples `n_samples` observations by doing single forward passes in topological order
         Args:
@@ -188,23 +197,31 @@ class DenseNonlinearGaussianJAX:
             x : [n_samples, d]
         """
 
-        # ancestral sampling
-        # does d full forward passes for simplicity,
-        # which avoids indexing into python list of parameters
-        #import pdb; pdb.set_trace()
-        t= toporder
-        x = lax.fori_loop(
-            0,
-            len(toporder),
-            lambda j, arr:
-                jnp.where(t[j] == node,
-                arr.at[:,j].set(arr[:,j]),
-                arr.at[:, t[j]].set(
-                        self.eltwise_nn_forward(theta, arr * g_mat[:, t[j]])[:, t[j]] + z[:, t[j]]
-                    )
-                ),
-            x
-        )
+        if onehot:
+            t= toporder
+            x = lax.fori_loop(
+                0,
+                len(toporder),
+                lambda j, arr:
+                    arr.at[:, t[j]].set(
+                        (self.eltwise_nn_forward(theta, arr * g_mat[:, t[j]])[:, t[j]] + z[:, t[j]])*(1.0-node[t[j]]) + node[t[j]]*arr[:, t[j]]
+                    ),
+                x
+            )
+        else:
+            t= toporder
+            x = lax.fori_loop(
+                0,
+                len(toporder),
+                lambda j, arr:
+                    jnp.where(t[j] == node,
+                    arr.at[:, node].set(arr[:, node]),
+                    arr.at[:, t[j]].set(
+                            self.eltwise_nn_forward(theta, arr * g_mat[:, t[j]])[:, t[j]] + z[:, t[j]]
+                        )
+                    ),
+                x
+            )
 
         return x
 
@@ -235,7 +252,6 @@ class DenseNonlinearGaussianJAX:
         if toporder is None:
             toporder = g.topological_sorting()
 
-
         toporder = jnp.array(toporder)
 
         return self.fast_sample_obs(
@@ -246,30 +262,27 @@ class DenseNonlinearGaussianJAX:
             node=node,
             toporder=toporder)
 
-    @partial(jit, static_argnames=('self', 'n_samples', 'deterministic'))
-    def new_sample_obs(self, *, key, g_mat, theta, toporder, n_samples, nodes=None, values=None, deterministic=False):
+    @partial(jit, static_argnames=('self', 'n_samples', 'deterministic', 'onehot'))
+    def new_sample_obs(self, *, key, g_mat, theta, toporder, n_samples, nodes=None, values=None, deterministic=False, onehot=False):
         n_vars = g_mat.shape[0]
         B = nodes.shape[0]
-
-        #nodes = nodes.reshape(B*n_samples)
-        #values = values.reshape(B*n_samples)
-        #toporder = toporder.reshape(B*n_samples, n_vars)
 
         x = jnp.zeros((B, n_samples, n_vars))
         z = self.obs_noise * random.normal(key, shape=(B, n_samples, n_vars)) # additive gaussian noise on the z
         if deterministic:
             z = 0*z
-        fn = lambda arr, idx, vals: arr.at[:, idx].set(vals)
         if nodes is not None:
             if hasattr(values, 'sample'):
                 values = values.sample(n_samples)
-            #import pdb;pdb.set_trace()
-            x = jax.vmap(fn)(x, nodes, values)
-
+            if onehot:
+                x = (nodes*values[:, None].repeat(n_vars, -1))[:, None] + ((1.0-nodes)[:, None]*x)
+            else:
+                fn = lambda arr, idx, vals: arr.at[:, idx].set(vals)
+                x = jax.vmap(fn)(x, jnp.int32(nodes), values)
         x = jax.vmap(
             self.fast_sample_obs,
-            (0, 0, None, None, 0, 0)
-        )(x, z, g_mat, theta, nodes, toporder)
+            (0, 0, None, None, 0, 0, None)
+        )(x, z, g_mat, theta, nodes, toporder, onehot)
 
         return x
 

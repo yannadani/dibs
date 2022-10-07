@@ -1,5 +1,7 @@
 # DiBS: Differentiable Bayesian Structure Learning
 
+**NOTE: This is a fork of the official implementation, with small changes to ensure compatibility to later versions of JAX.**
+
 This is the Python implementation for *DiBS*  ([Lorch et al., 2021](https://arxiv.org/abs/2105.11839)), a fully differentiable method for joint Bayesian inference of graphs and parameters of general Bayesian networks.
 
 The repository consists of two branches:

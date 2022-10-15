@@ -8,7 +8,7 @@ import numpy as onp # needed for np.unique(axis=0)
 import jax.numpy as jnp
 from jax import jit
 from jax.scipy.special import logsumexp
-from jax.tree_util import tree_flatten, tree_map, tree_multimap, tree_reduce
+from jax.tree_util import tree_flatten, tree_map, tree_reduce
 
 
 def expand_by(arr, n):
@@ -281,7 +281,7 @@ def squared_norm_pytree(x, y):
         shape [] 
     """ 
 
-    diff = tree_multimap(jnp.subtract, x, y)
+    diff = tree_map(jnp.subtract, x, y)
     squared_norm_ind = tree_map(lambda leaf: jnp.square(leaf).sum(), diff)
     squared_norm = tree_reduce(jnp.add, squared_norm_ind)
     return squared_norm

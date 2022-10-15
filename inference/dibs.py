@@ -4,7 +4,7 @@ from jax.scipy.special import logsumexp
 # from jax.ops import index, index_mul
 from jax.nn import sigmoid, log_sigmoid
 import jax.lax as lax
-from jax.tree_util import tree_map, tree_multimap
+from jax.tree_util import tree_map
 
 from ..utils.graph import acyclic_constr_nograd
 from ..utils.func import expand_by
@@ -564,7 +564,7 @@ class DiBS:
         log_denominator = logsumexp(logprobs_denominator, axis=0)
 
         # original PyTree shape of `single_theta`
-        stable_grad = tree_multimap(
+        stable_grad = tree_map(
             lambda sign_leaf_theta, log_leaf_theta:
                 (sign_leaf_theta * jnp.exp(log_leaf_theta - jnp.log(n_mc_numerator) - log_denominator + jnp.log(n_mc_denominator))),
             sign, log_numerator)

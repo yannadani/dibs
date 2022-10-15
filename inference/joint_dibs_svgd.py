@@ -4,7 +4,7 @@ import tqdm
 import jax.numpy as jnp
 from jax import jit, vmap, random, grad
 from jax.experimental import optimizers
-from jax.tree_util import tree_map, tree_multimap
+from jax.tree_util import tree_map
 
 from ..inference.dibs import DiBS
 
@@ -235,7 +235,7 @@ class JointDiBS(DiBS):
         repulsion = self.eltwise_grad_kernel_theta(z, theta, single_z, single_theta, h_latent, h_theta, t)
 
         # average and negate (for optimizer)
-        return  tree_multimap(
+        return  tree_map(
             lambda grad_asc_leaf, repuls_leaf: 
                 - (grad_asc_leaf + repuls_leaf).mean(axis=0), 
             weighted_gradient_ascent, 

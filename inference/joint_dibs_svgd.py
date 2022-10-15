@@ -3,7 +3,7 @@ import tqdm
 
 import jax.numpy as jnp
 from jax import jit, vmap, random, grad
-from jax.experimental import optimizers
+from jax.example_libraries import optimizers
 from jax.tree_util import tree_map
 
 from ..inference.dibs import DiBS

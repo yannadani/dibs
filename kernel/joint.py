@@ -16,15 +16,16 @@ class JointMultiplicativeFrobeniusSEKernel:
 
     """
 
-    def __init__(self, *, h_latent, h_theta, scale=1.0):
+    def __init__(self, *, h_latent, h_theta, h_sigma, scale=1.0):
         super(JointMultiplicativeFrobeniusSEKernel, self).__init__()
 
         self.h_latent = h_latent
         self.h_theta = h_theta
+        self.h_sigma = h_sigma
         self.scale = scale
         
         
-    def eval(self, *, x_latent, x_theta, y_latent, y_theta, h_latent=-1.0, h_theta=-1.0):
+    def eval(self, *, x_latent, x_theta, x_sigma, y_latent, y_theta, y_sigma, h_latent=-1.0, h_theta=-1.0, h_sigma=-1.0):
         """Evaluates kernel function k(x, y) 
         
         Args:
@@ -51,12 +52,17 @@ class JointMultiplicativeFrobeniusSEKernel:
             lambda _: h_theta,
             operand=None)
 
+        h_sigma_ = lax.cond(
+            h_sigma == -1.0,
+            lambda _: self.h_sigma,
+            lambda _: h_sigma,
+            operand=None)
         # compute norm
         latent_squared_norm = jnp.sum((x_latent - y_latent) ** 2.0)
         theta_squared_norm = squared_norm_pytree(x_theta, y_theta)
-
+        sigma_squared_norm = jnp.sum((x_sigma - y_sigma) ** 2.0)
         # compute kernel
-        return self.scale * jnp.exp(- (latent_squared_norm / h_latent_) - (theta_squared_norm / h_theta_))
+        return self.scale * jnp.exp(- (latent_squared_norm / h_latent_) - (theta_squared_norm / h_theta_)- (sigma_squared_norm / h_sigma_))
 
 
 class JointAdditiveFrobeniusSEKernel:
@@ -70,16 +76,17 @@ class JointAdditiveFrobeniusSEKernel:
 
     """
 
-    def __init__(self, *, h_latent, h_theta, scale_latent=1.0, scale_theta=1.0):
+    def __init__(self, *, h_latent, h_theta, h_sigma, scale_latent=1.0, scale_theta=1.0, scale_sigma=1.0):
         super(JointAdditiveFrobeniusSEKernel, self).__init__()
 
         self.h_latent = h_latent
         self.h_theta = h_theta
+        self.h_sigma = h_sigma
         self.scale_latent = scale_latent
         self.scale_theta = scale_theta
-       
+        self.scale_sigma = scale_sigma
 
-    def eval(self, *, x_latent, x_theta, y_latent, y_theta, h_latent=-1.0, h_theta=-1.0):
+    def eval(self, *, x_latent, x_theta, x_sigma, y_latent, y_theta, y_sigma, h_latent=-1.0, h_theta=-1.0, h_sigma=-1.0):
         """Evaluates kernel function k(x, y) 
         
         Args:
@@ -106,11 +113,17 @@ class JointAdditiveFrobeniusSEKernel:
             lambda _: h_theta,
             operand=None)
 
+        h_sigma_ = lax.cond(
+            h_sigma == -1.0,
+            lambda _: self.h_sigma,
+            lambda _: h_sigma,
+            operand=None)
         # compute norm
         latent_squared_norm = jnp.sum((x_latent - y_latent) ** 2.0)
         theta_squared_norm = squared_norm_pytree(x_theta, y_theta)
-
+        sigma_squared_norm = jnp.sum((x_sigma - y_sigma) ** 2.0)
         # compute kernel
         return (self.scale_latent * jnp.exp(- latent_squared_norm / h_latent_)
-              + self.scale_theta  * jnp.exp(- theta_squared_norm  / h_theta_ ))
+              + self.scale_theta  * jnp.exp(- theta_squared_norm  / h_theta_ )
+              + self.scale_sigma  * jnp.exp(- sigma_squared_norm  / h_sigma_ ))
 

@@ -8,7 +8,7 @@ import numpy as onp # needed for np.unique(axis=0)
 import jax.numpy as jnp
 from jax import jit
 from jax.scipy.special import logsumexp
-from jax.tree_util import tree_flatten, tree_map, tree_multimap, tree_reduce
+from jax.tree_util import tree_flatten, tree_map, tree_reduce
 
 
 def expand_by(arr, n):
@@ -199,7 +199,7 @@ def particle_marginal_mixture(b, eltwise_log_prob, data, interv_targets):
     return id2bit(unique, n_vars), log_probs
 
 
-def particle_joint_empirical(b, theta):
+def particle_joint_empirical(b, theta, sigma):
     """
     Converts batch of binary (adjacency) matrices and associated
     parameters into a standardized form of a particle distribution.
@@ -218,14 +218,13 @@ def particle_joint_empirical(b, theta):
     """
     N, n_vars, _ = b.shape
     ids = bit2id(b)
-
     # empirical
     log_probs = - jnp.log(N) * jnp.ones(N)
 
-    return id2bit(ids, n_vars), theta, log_probs
+    return id2bit(ids, n_vars), theta, sigma, log_probs
 
 
-def particle_joint_mixture(b, theta, eltwise_log_prob, data, interv_targets):
+def particle_joint_mixture(b, theta, sigma, eltwise_log_prob, data, interv_targets):
     """
     Converts batch of binary (adjacency) matrices and associated
     parameters into into a standardized form of a particle distribution, 
@@ -250,10 +249,10 @@ def particle_joint_mixture(b, theta, eltwise_log_prob, data, interv_targets):
 
     # mixture using relative log probs
     # assumes that every particle is unique (always true because of theta)
-    log_probs = eltwise_log_prob(id2bit(ids, n_vars), theta, data, interv_targets)
+    log_probs = eltwise_log_prob(id2bit(ids, n_vars), theta, sigma, data, interv_targets)
     log_probs -= logsumexp(log_probs)
 
-    return id2bit(ids,n_vars), theta, log_probs
+    return id2bit(ids,n_vars), theta, sigma, log_probs
 
 
 def dist_is_none(dist):
@@ -267,7 +266,7 @@ def joint_dist_to_marginal(dist):
     """
     Drops the parameter part of the joint distribution tuple
     """
-    return (dist[0], dist[2]) 
+    return (dist[0], dist[3]) 
 
 
 def squared_norm_pytree(x, y):
@@ -281,7 +280,7 @@ def squared_norm_pytree(x, y):
         shape [] 
     """ 
 
-    diff = tree_multimap(jnp.subtract, x, y)
+    diff = tree_map(jnp.subtract, x, y)
     squared_norm_ind = tree_map(lambda leaf: jnp.square(leaf).sum(), diff)
     squared_norm = tree_reduce(jnp.add, squared_norm_ind)
     return squared_norm

@@ -270,7 +270,7 @@ class LinearGaussianJAX:
         return jnp.sum(w * jax_normal.logpdf(x=theta, loc=self.mean_edge, scale=self.sig_edge))
 
 
-    def log_likelihood(self, *, data, theta, w, interv_targets):
+    def log_likelihood(self, *, data, theta, w, sigma, interv_targets):
         """Computes p(x | theta, G). Assumes N(mean_obs, obs_noise) distribution for any given observation
             data :          [n_observations, n_vars]
             theta:          [n_vars, n_vars]
@@ -284,7 +284,7 @@ class LinearGaussianJAX:
                 interv_targets[None, ...],
                 0.0,
                 # [n_observations, n_vars]
-                jax_normal.logpdf(x=data, loc=data @ (w * theta), scale=jnp.sqrt(self.obs_noise))
+                jax_normal.logpdf(x=data, loc=data @ (w * theta), scale=jnp.sqrt(sigma))
             )
         )
         # prev code without interventions

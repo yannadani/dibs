@@ -156,7 +156,7 @@ class ScaleFreeDAGDistribution(GraphDistribution):
     def sample_G(self, key, return_mat=False):
         """Samples DAG"""
 
-        pyrandom.seed(key.sum())
+        pyrandom.seed(int(key.sum()))
         perm = random.permutation(key, self.n_vars).tolist()
         g = ig.Graph.Barabasi(n=self.n_vars, m=self.n_edges_per_node, directed=True).permute_vertices(perm)
 

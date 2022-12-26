@@ -7,8 +7,8 @@ from jax.scipy.stats import norm as jax_normal
 from jax.tree_util import tree_map, tree_reduce
 
 import jax.lax as lax
-import jax.experimental.stax as stax
-from jax.experimental.stax import Dense, Sigmoid, LeakyRelu, Relu, Tanh
+import jax.example_libraries.stax as stax
+from jax.example_libraries.stax import Dense, Sigmoid, LeakyRelu, Relu, Tanh
 
 from jax.nn.initializers import normal
 
@@ -398,7 +398,7 @@ class DenseNonlinearGaussianJAX:
             )
         )
 
-    def log_likelihood_single(self, *, data, theta, w, interv_targets):
+    def log_likelihood_single(self, *, data, theta, w, sigma, interv_targets):
         """log p(x | theta, G)
         Assumes N(mean_obs, obs_noise^2) distribution for any given observation
 
@@ -424,5 +424,5 @@ class DenseNonlinearGaussianJAX:
                 interv_targets[None, ...],
                 0.0,
                 # [n_observations, n_vars]
-                jax_normal.logpdf(x=data, loc=all_means, scale=self.obs_noise)
+                jax_normal.logpdf(x=data, loc=all_means, scale=jnp.sqrt(sigma))
             ), axis = -1)

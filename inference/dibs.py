@@ -4,8 +4,8 @@ from jax.scipy.special import logsumexp
 # from jax.ops import index, index_mul
 from jax.nn import sigmoid, log_sigmoid
 import jax.lax as lax
-from jax.tree_util import tree_map, tree_multimap
-
+from jax.tree_util import tree_map
+from tensorflow_probability.substrates import jax as tfp
 from ..utils.graph import acyclic_constr_nograd
 from ..utils.func import expand_by
 
@@ -34,7 +34,7 @@ class DiBS:
     def __init__(self, *, target_log_prior, target_log_joint_prob, alpha_linear, beta_linear=1.0, tau=1.0,
                  n_grad_mc_samples=128, n_acyclicity_mc_samples=32,
                  grad_estimator_z='reparam', score_function_baseline=0.0,
-                 latent_prior_std=None, sigma_prior_std=None, verbose=False):
+                 latent_prior_std=None, sigma_prior_concentration=None, verbose=False):
         super(DiBS, self).__init__()
 
         self.target_log_prior = target_log_prior
@@ -47,7 +47,7 @@ class DiBS:
         self.grad_estimator_z = grad_estimator_z
         self.score_function_baseline = score_function_baseline
         self.latent_prior_std = latent_prior_std
-        self.sigma_prior_std = sigma_prior_std
+        self.sigma_prior_concentration = sigma_prior_concentration
         self.verbose = verbose
 
     """
@@ -472,7 +472,6 @@ class DiBS:
 
         # []
         log_denominator = logsumexp(logprobs_denominator, axis=0)
-
         # [d, k, 2]
         stable_grad = sign * jnp.exp(log_numerator - jnp.log(n_mc_numerator) - log_denominator + jnp.log(n_mc_denominator))
 
@@ -499,7 +498,7 @@ class DiBS:
         """
         return vmap(self.grad_sigma_likelihood, (0, 0, 0, None, None, None, None), 0)(zs, thetas, sigmas, t, data, interv_targets, subk)
 
-    def grad_sigma_likelihood(self, single_z, single_theta, single_sigma, single_sf_baseline, t, data, interv_targets, subk):
+    def grad_sigma_likelihood(self, single_z, single_theta, single_sigma, t, data, interv_targets, subk):
         """
         Reparameterization estimator for the score
 
@@ -539,7 +538,7 @@ class DiBS:
 
         # stable computation of exp/log/divide
         # [d, k, 2], [d, k, 2]
-        log_numerator, sign = logsumexp(a=logprobs_numerator[:, None, None, None], b=grad_sigma, axis=0, return_sign=True)
+        log_numerator, sign = logsumexp(a=logprobs_numerator[:, None], b=grad_sigma, axis=0, return_sign=True)
 
         # []
         log_denominator = logsumexp(logprobs_denominator, axis=0)
@@ -634,7 +633,7 @@ class DiBS:
         log_denominator = logsumexp(logprobs_denominator, axis=0)
 
         # original PyTree shape of `single_theta`
-        stable_grad = tree_multimap(
+        stable_grad = tree_map(
             lambda sign_leaf_theta, log_leaf_theta:
                 (sign_leaf_theta * jnp.exp(log_leaf_theta - jnp.log(n_mc_numerator) - log_denominator + jnp.log(n_mc_denominator))),
             sign, log_numerator)
@@ -785,6 +784,7 @@ class DiBS:
             batch of gradients of shape [n_particles, d, k, 2]
 
         """
+        std_sigma = self.sigma_prior_concentration or 1.0
 
-        return - sigmas / (self.sigma_prior_std ** 2.0) 
+        return -((std_sigma+1)/sigmas) + (1./sigmas**2)
 

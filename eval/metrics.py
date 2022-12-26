@@ -76,8 +76,7 @@ def expected_shd(*, dist, g, use_cpdag=False):
     n_vars = g.shape[0]
 
     # convert graph ids to adjacency matrices
-    id_particles_cyc, log_weights_cyc = dist
-    particles_cyc = id2bit(id_particles_cyc, n_vars)
+    particles_cyc, log_weights_cyc = dist
 
     # select acyclic graphs
     is_dag = elwise_acyclic_constr_nograd(particles_cyc, n_vars) == 0
@@ -164,8 +163,7 @@ def threshold_metrics(*, dist, g, undirected_cpdag_oriented_correctly=False):
     g_flat = g.reshape(-1)
 
     # convert graph ids to adjacency matrices
-    id_particles_cyc, log_weights_cyc = dist 
-    particles_cyc = id2bit(id_particles_cyc, n_vars)
+    particles_cyc, log_weights_cyc = dist 
 
     # select acyclic graphs
     is_dag = elwise_acyclic_constr_nograd(particles_cyc, n_vars) == 0
@@ -230,8 +228,7 @@ def neg_ave_log_marginal_likelihood(*, dist, eltwise_log_target, x):
     n_ho_observations, n_vars = x.shape
 
    # convert graph ids to adjacency matrices
-    id_particles_cyc, log_weights_cyc = dist
-    particles_cyc = id2bit(id_particles_cyc, n_vars)
+    particles_cyc, log_weights_cyc = dist
 
     # select acyclic graphs
     is_dag = elwise_acyclic_constr_nograd(particles_cyc, n_vars) == 0
@@ -257,7 +254,7 @@ def neg_ave_log_marginal_likelihood(*, dist, eltwise_log_target, x):
 # joint posterior p(G, theta | D) metrics
 #
 
-def neg_ave_log_likelihood(*, dist, eltwise_log_joint_target, x):
+def neg_ave_log_likelihood(*, dist, eltwise_log_joint_target, x, interv_targets):
     """
     Computes neg. ave log marginal likelihood.
 
@@ -273,8 +270,7 @@ def neg_ave_log_likelihood(*, dist, eltwise_log_joint_target, x):
 
     n_ho_observations, n_vars = x.shape
 
-    ids_cyc, theta_cyc, log_weights_cyc = dist
-    hard_g_cyc = id2bit(ids_cyc, n_vars)
+    hard_g_cyc, theta_cyc, sigma_cyc, log_weights_cyc = dist
 
     # select acyclic graphs
     is_dag = elwise_acyclic_constr_nograd(hard_g_cyc, n_vars) == 0
@@ -283,13 +279,15 @@ def neg_ave_log_likelihood(*, dist, eltwise_log_joint_target, x):
         hard_g = tree_mul(hard_g_cyc, 0.0)
         theta = tree_mul(theta_cyc, 0.0)
         log_weights = tree_mul(log_weights_cyc, 0.0)
+        sigma = tree_mul(sigma_cyc, 0.0)
 
     else:
         hard_g = hard_g_cyc[is_dag, :, :]
         theta = tree_select(theta_cyc, is_dag)
         log_weights = log_weights_cyc[is_dag] - logsumexp(log_weights_cyc[is_dag])
+        sigma = sigma_cyc[is_dag]
         
-    log_likelihood = eltwise_log_joint_target(hard_g, theta, x)
+    log_likelihood = eltwise_log_joint_target(hard_g, theta, sigma, x, interv_targets)
 
     # - sum_G p(G, theta | D) log(p(x | G, theta))
     log_score, log_score_sgn = logsumexp(

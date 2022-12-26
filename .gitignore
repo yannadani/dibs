@@ -13,7 +13,7 @@ examples/log/*
 __pycache__/
 *.py[cod]
 *$py.class
-
+dibs_env/
 # C extensions
 *.so
 

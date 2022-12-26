@@ -3,8 +3,9 @@ import tqdm
 
 import jax.numpy as jnp
 from jax import jit, vmap, random, grad
-from jax.experimental import optimizers
-from jax.tree_util import tree_map, tree_multimap
+from jax.example_libraries import optimizers
+from jax.tree_util import tree_map
+from tensorflow_probability.substrates import jax as tfp
 
 from ..inference.dibs import DiBS
 
@@ -40,7 +41,7 @@ class JointDiBS(DiBS):
     def __init__(self, *, kernel, target_log_prior, target_log_joint_prob, alpha_linear, beta_linear=1.0, tau=1.0,
                  optimizer=dict(name='rmsprop', stepsize=0.005), n_grad_mc_samples=128, n_acyclicity_mc_samples=32, 
                  grad_estimator_z='reparam', score_function_baseline=0.0,
-                 latent_prior_std=None, sigma_prior_std=None, verbose=False):
+                 latent_prior_std=None, sigma_prior_concentration=None, verbose=False):
         super(JointDiBS, self).__init__(
             target_log_prior=target_log_prior,
             target_log_joint_prob=target_log_joint_prob,
@@ -52,7 +53,7 @@ class JointDiBS(DiBS):
             grad_estimator_z=grad_estimator_z,
             score_function_baseline=score_function_baseline,
             latent_prior_std=latent_prior_std,
-            sigma_prior_std=sigma_prior_std,
+            sigma_prior_concentration=sigma_prior_concentration,
             verbose=verbose,
         )
 
@@ -82,7 +83,7 @@ class JointDiBS(DiBS):
         
         # std like Gaussian prior over Z           
         std = self.latent_prior_std  or (1.0 / jnp.sqrt(n_dim))
-        std_sigma = self.sigma_prior_std or (1.0 / jnp.sqrt(n_dim))
+        std_sigma = self.sigma_prior_concentration or 1.0
         # sample
         key, subk = random.split(key)
         z = random.normal(subk, shape=(n_particles, n_vars, n_dim, 2)) * std
@@ -91,7 +92,7 @@ class JointDiBS(DiBS):
         theta = model.init_parameters(key=subk, n_particles=n_particles, n_vars=n_vars)
 
         key, subk = random.split(key)
-        sigma = random.normal(subk, shape=(n_particles, n_vars)) * std_sigma
+        sigma = tfp.distributions.InverseGamma(std_sigma, 1.0).sample(seed=subk, sample_shape=(n_particles, n_vars))
 
         return z, theta, sigma
 
@@ -258,7 +259,7 @@ class JointDiBS(DiBS):
         repulsion = self.eltwise_grad_kernel_theta(z, theta, sigma, single_z, single_theta, single_sigma, h_latent, h_theta, h_sigma, t)
 
         # average and negate (for optimizer)
-        return  tree_multimap(
+        return  tree_map(
             lambda grad_asc_leaf, repuls_leaf: 
                 - (grad_asc_leaf + repuls_leaf).mean(axis=0), 
             weighted_gradient_ascent, 
@@ -290,7 +291,7 @@ class JointDiBS(DiBS):
         """
     
         # compute terms in sum
-        weighted_gradient_ascent = kxx[..., None, None, None] * grad_log_prob_sigma
+        weighted_gradient_ascent = kxx[..., None] * grad_log_prob_sigma
         repulsion = self.eltwise_grad_kernel_sigma(z, theta, sigma, single_z, single_theta, single_sigma, h_latent, h_theta, h_sigma, t)
 
         # average and negate (for optimizer)
@@ -325,7 +326,6 @@ class JointDiBS(DiBS):
         theta = self.get_params(opt_state_theta) # PyTree with `n_particles` leading dim
         sigma = self.get_params(opt_state_sigma)
         n_particles = z.shape[0]
-
         # make sure same bandwith is used for all calls to k(x, x') (in case e.g. the median heuristic is applied)
         h_latent = self.kernel.h_latent
         h_theta = self.kernel.h_theta
@@ -423,7 +423,6 @@ class JointDiBS(DiBS):
         """Execute particle update steps for all particles in parallel using `vmap` functions"""
         it = tqdm.tqdm(range(n_steps), desc='DiBS', disable=not self.verbose)
         for t in it:
-
             # perform one SVGD step (compiled with @jit)
             opt_state_z, opt_state_theta, opt_state_sigma, key, sf_baseline  = self.svgd_step(
                 opt_state_z, opt_state_theta, opt_state_sigma, data, key,interv_targets, t, sf_baseline)

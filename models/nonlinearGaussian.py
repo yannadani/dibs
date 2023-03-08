@@ -167,7 +167,7 @@ class DenseNonlinearGaussianJAX:
         theta = tree_map(lambda arr: arr.astype(jnp.float64), theta)
         return theta
 
-    def sample_parameters(self, *, key, n_vars):
+    def sample_parameters(self, *, key, g=None, n_vars=None):
         """Samples parameters for neural network. Here, g is ignored.
         Args:
             g (igraph.Graph): graph
@@ -176,7 +176,8 @@ class DenseNonlinearGaussianJAX:
         Returns:
             theta : list of (W, b) tuples, dependent on `hidden_layers`
         """
-
+        if n_vars is None:
+            n_vars = len(g.vs)
         subkeys = random.split(key, n_vars)
         _, theta = self.eltwise_nn_init_random_params(subkeys, (n_vars, ))
 
@@ -226,7 +227,7 @@ class DenseNonlinearGaussianJAX:
         return x
 
 
-    def sample_obs(self, *, key, n_samples, g, theta, toporder=None, node=None, value_sampler=None, deterministic=False):
+    def sample_obs(self, *, key, n_samples, g, theta, sigma, toporder=None, node=None, value=None, value_sampler=None, deterministic=False):
         """
         Samples `n_samples` observations by doing single forward passes in topological order
         Args:
@@ -241,12 +242,15 @@ class DenseNonlinearGaussianJAX:
         g_mat = graph_to_mat(g)
         n_vars = g_mat.shape[0]
 
-        z = self.obs_noise * random.normal(key, shape=(n_samples, n_vars)) # additive gaussian noise on the z
+        z = jnp.sqrt(sigma) * random.normal(key, shape=(n_samples, n_vars)) # additive gaussian noise on the z
         if deterministic:
             z = 0*z
         x = jnp.zeros((n_samples, n_vars))
         if node is not None:
-            values = value_sampler.sample(n_samples)
+            if value is None:
+                values = value_sampler.sample(n_samples)
+            else:
+                values = value
             x = x.at[:, node].set(values)
         # find topological order for ancestral sampling
         if toporder is None:
@@ -263,12 +267,12 @@ class DenseNonlinearGaussianJAX:
             toporder=toporder)
 
     @partial(jit, static_argnames=('self', 'n_samples', 'deterministic', 'onehot'))
-    def new_sample_obs(self, *, key, g_mat, theta, toporder, n_samples, nodes=None, values=None, deterministic=False, onehot=False):
+    def new_sample_obs(self, *, key, g_mat, theta, sigma, toporder, n_samples, nodes=None, values=None, deterministic=False, onehot=False):
         n_vars = g_mat.shape[0]
         B = nodes.shape[0]
 
         x = jnp.zeros((B, n_samples, n_vars))
-        z = self.obs_noise * random.normal(key, shape=(B, n_samples, n_vars)) # additive gaussian noise on the z
+        z = jnp.sqrt(sigma) * random.normal(key, shape=(B, n_samples, n_vars)) # additive gaussian noise on the z
         if deterministic:
             z = 0*z
         if nodes is not None:
@@ -286,7 +290,7 @@ class DenseNonlinearGaussianJAX:
 
         return x
 
-    def old_sample_obs(self, *, key, n_samples, g, theta, toporder=None, node = None, value_sampler = None, deterministic=False):
+    def old_sample_obs(self, *, key, n_samples, g, theta, sigma, toporder=None, node = None, value_sampler = None, deterministic=False):
         """
         Samples `n_samples` observations by doing single forward passes in topological order
         Args:
@@ -311,7 +315,7 @@ class DenseNonlinearGaussianJAX:
             for i in range(n_vars):
                 key, subk = random.split(key)
                 # z = index_update(z, index[:, i], self.obs_noise[i] * random.normal(subk, shape=(n_samples,)))
-                z = z.at[:, i].set(self.obs_noise[i] * random.normal(subk, shape=(n_samples,)))
+                z = z.at[:, i].set(jnp.sqrt(sigma[i]) * random.normal(subk, shape=(n_samples,)))
 
         g_mat = graph_to_mat(g)
 
@@ -367,7 +371,7 @@ class DenseNonlinearGaussianJAX:
         return tree_reduce(jnp.add, tree_map(jnp.sum, logprobs))
 
 
-    def log_likelihood(self, *, data, theta, w, interv_targets):
+    def log_likelihood(self, *, data, theta, w, sigma, interv_targets):
         """log p(x | theta, G)
         Assumes N(mean_obs, obs_noise^2) distribution for any given observation
 
@@ -394,7 +398,7 @@ class DenseNonlinearGaussianJAX:
                 interv_targets[None, ...],
                 0.0,
                 # [n_observations, n_vars]
-                jax_normal.logpdf(x=data, loc=all_means, scale=self.obs_noise)
+                jax_normal.logpdf(x=data, loc=all_means, scale=jnp.sqrt(sigma))
             )
         )
 

@@ -290,4 +290,62 @@ class LinearGaussianJAX:
         # prev code without interventions
         # return jnp.sum(jax_normal.logpdf(x=data, loc=data @ (w * theta), scale=jnp.sqrt(self.obs_noise)))
 
+    def log_likelihood_single(self, *, data, theta, w, sigma, interv_targets):
+        """Computes p(x | theta, G). Assumes N(mean_obs, obs_noise) distribution for any given observation
+            data :          [n_observations, n_vars]
+            theta:          [n_vars, n_vars]
+            w:              [n_vars, n_vars]
+            interv_targets: [n_vars, ]
+        """
+        # sum scores for all nodes
+        return jnp.sum(
+            jnp.where(
+                # [1, n_vars]
+                interv_targets[None, ...],
+                0.0,
+                # [n_observations, n_vars]
+                jax_normal.logpdf(x=data, loc=data @ (w * theta), scale=jnp.sqrt(sigma))
+            ), axis=-1
+        )
+    def sample_obs(self, *, key, n_samples, g, theta, sigma, toporder=None, node=None, value=None):
+        """Samples `n_samples` observations given graph and parameters
+        Args:
+            key: rng
+            n_samples (int): number of samples
+            g (igraph.Graph): graph
+            theta : parameters
+            interv: {intervened node : clamp value}
 
+        Returns:
+            x : [n_samples, d]
+        """
+        if toporder is None:
+            toporder = g.topological_sorting()
+
+        x = jnp.zeros((n_samples, len(g.vs)))
+
+        key, subk = random.split(key)
+        z = jnp.sqrt(sigma) * random.normal(subk, shape=(n_samples, len(g.vs)))
+
+        # ancestral sampling
+        for j in toporder:
+
+            # intervention
+            if j == node:
+                #x = index_update(x, index[:, j], interv[j])
+                x = x.at[:, j].set(value)
+                continue
+
+            # regular ancestral sampling
+            parent_edges = g.incident(j, mode='in')
+            parents = list(g.es[e].source for e in parent_edges)
+
+            if parents:
+                mean = x[:, jnp.array(parents)] @ theta[jnp.array(parents), j]
+                #x = index_update(x, index[:, j], mean + z[:, j])
+                x = x.at[:, j].set(mean + z[:, j])
+            else:
+                #x = index_update(x, index[:, j], z[:, j])
+                x  =x.at[:, j].set(z[:, j])
+
+        return x
